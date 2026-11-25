@@ -1,0 +1,401 @@
+html.w-settings {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --fg: #1d2129;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #3b6cf6;
+  --accent-soft: #e8eefe;
+  --danger: #e5484d;
+  --perfect: #16a34a;
+  --great: #65a30d;
+  --good: #ca8a04;
+  --miss: #dc2626;
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+}
+@media (prefers-color-scheme: dark) {
+  html.w-settings {
+    --bg: #17181c;
+    --card: #202227;
+    --fg: #e8e9ec;
+    --muted: #9aa0aa;
+    --line: #30333a;
+    --accent: #7aa2ff;
+    --accent-soft: #263252;
+    --perfect: #4ade80;
+    --great: #a3e635;
+    --good: #facc15;
+    --miss: #f87171;
+  }
+}
+html.w-settings body {
+  margin: 0;
+}
+.w-settings .loading {
+  padding: 40px;
+  color: var(--muted);
+}
+.w-settings .app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.w-settings header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 8px;
+}
+.w-settings .brand {
+  font-size: 18px;
+  font-weight: 700;
+}
+.w-settings .brand .sub {
+  margin-left: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.w-settings nav {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.w-settings nav button {
+  border: none;
+  background: none;
+  border-radius: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.w-settings nav button.on {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.w-settings main {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 20px 24px;
+}
+.w-settings section {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.w-settings h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.w-settings p {
+  margin: 6px 0;
+}
+.w-settings .note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.w-settings .warn-text {
+  color: var(--miss);
+}
+.w-settings .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.w-settings .row.wrap {
+  flex-wrap: wrap;
+}
+.w-settings button,
+.w-settings .filebtn {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+}
+.w-settings button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.w-settings button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.w-settings button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.w-settings .filebtn input {
+  display: none;
+}
+.w-settings input[type="range"] {
+  flex: 1;
+  max-width: 300px;
+}
+.w-settings input[type="number"].num {
+  width: 64px;
+}
+.w-settings input:not([type]),
+.w-settings input[type="number"],
+.w-settings select {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+}
+.w-settings input.bad {
+  border-color: var(--miss);
+}
+.w-settings .hk-label {
+  width: 130px;
+}
+.w-settings .seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.w-settings .seg button.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.w-settings .toggle,
+.w-settings .radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+/* pattern list */
+.w-settings .patterns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.w-settings .pattern {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.w-settings .pattern.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.w-settings .pname {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.w-settings .tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--accent);
+}
+.w-settings .pact {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.w-settings .pact button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.w-settings .pp {
+  display: flex;
+  gap: 3px;
+}
+.w-settings .pp-beat {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.w-settings .pp-beat i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  box-sizing: border-box;
+}
+.w-settings .pp-beat i.on {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+/* editor */
+.w-settings .editor .grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+.w-settings .grid-beat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.w-settings .grid-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+.w-settings .cells {
+  display: flex;
+  gap: 4px;
+}
+.w-settings .cell {
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border-radius: 5px;
+}
+.w-settings .cell.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.w-settings .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* keys */
+.w-settings .keycap {
+  min-width: 48px;
+  font-weight: 600;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.w-settings .keycap.waiting {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.w-settings .grade {
+  font-weight: 600;
+  min-width: 64px;
+}
+.w-settings .grade.perfect { color: var(--perfect); }
+.w-settings .grade.great { color: var(--great); }
+.w-settings .grade.good { color: var(--good); }
+.w-settings .grade.miss { color: var(--miss); }
+
+/* calibration */
+.w-settings .calib-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 10px 0;
+}
+.w-settings .calib-pad {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  font-size: 13px;
+  transition: background 0.05s;
+}
+.w-settings .calib-pad.lit {
+  background: var(--accent);
+  color: #fff;
+}
+.w-settings .calib-result {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* history */
+.w-settings .summary .big {
+  font-size: 32px;
+  font-weight: 700;
+}
+.w-settings table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.w-settings th,
+.w-settings td {
+  text-align: left;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.w-settings th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.w-settings .sub {
+  margin-left: 26px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+/* history detail */
+html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axis: #c3c2b7; }
+@media (prefers-color-scheme: dark) {
+  html.w-settings { --series: #5b82f0; --grid: #2c2c2a; --axis: #383835; }
+}
+.w-settings .clickable { cursor: pointer; }
+.w-settings .clickable:hover { border-color: var(--accent); }
+.w-settings table.rows tbody tr { cursor: pointer; }
+.w-settings table.rows tbody tr:hover, .w-settings tr.hl { background: var(--accent-soft); }
+.w-settings .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.w-settings .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.w-settings .tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.w-settings .tile-label { font-size: 12px; color: var(--muted); }
+.w-settings .tile-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.w-settings .tile-note { font-size: 11px; color: var(--muted); }
+.w-settings .chart { position: relative; }
+.w-settings .chart svg { display: block; font-size: 11px; }
+.w-settings .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.w-settings .chart-legend i { display: inline-block; vertical-align: middle; margin-right: 4px; font-style: normal; }
+.w-settings .lg-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series); }
+.w-settings .lg-line { width: 14px; height: 2px; background: var(--fg); }
+.w-settings .lg-x { color: var(--critical); font-weight: 700; }
+.w-settings .lg-tick { width: 2px; height: 10px; background: var(--muted); }
+.w-settings .band.perfect { fill: var(--series); opacity: 0.1; }
+.w-settings .band.great { fill: var(--series); opacity: 0.06; }
+.w-settings .band.good { fill: var(--muted); opacity: 0.06; }
+.w-settings .band-label, .w-settings .axis { fill: var(--muted); }
+.w-settings .zero { stroke: var(--axis); stroke-width: 1; }
+.w-settings .pt { fill: var(--series); stroke: var(--card); stroke-width: 1; }
+.w-settings .ma { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; opacity: 0.75; }
+.w-settings .miss-x { fill: var(--critical); font-size: 13px; font-weight: 700; }
+.w-settings .stray { stroke: var(--muted); stroke-width: 2; }
+.w-settings .crosshair { stroke: var(--axis); stroke-dasharray: 3 3; }
+.w-settings .hover-ring { fill: none; stroke: var(--fg); stroke-width: 2; }
+.w-settings .tooltip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); min-width: 120px; }
+.w-settings table.kv td:first-child { color: var(--muted); width: 170px; }
+.w-settings td { font-variant-numeric: tabular-nums; }
+.w-settings .grade.stray { color: var(--muted); }
+.w-settings .chart-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.w-settings .chart-bar .chart-legend { margin-bottom: 0; }
+.w-settings .zoom-ctl { display: flex; gap: 4px; flex: none; }
+.w-settings .zoom-ctl button { padding: 2px 8px; font-size: 12px; }
+.w-settings .chart svg.grab { cursor: grab; }
+.w-settings .chart svg.grabbing { cursor: grabbing; }
+.w-settings .chart svg { user-select: none; -webkit-user-select: none; }

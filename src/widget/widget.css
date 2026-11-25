@@ -1,0 +1,178 @@
+html.w-widget,
+html.w-widget body,
+html.w-widget #root {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.widget {
+  --bg: rgba(28, 30, 36, 0.78);
+  --fg: rgba(255, 255, 255, 0.9);
+  --muted: rgba(255, 255, 255, 0.28);
+  --accent: #7aa2ff;
+  --perfect: #4ade80;
+  --great: #a3e635;
+  --good: #facc15;
+  --miss: #f87171;
+  --s: 1;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--s));
+  padding: calc(4px * var(--s));
+  border-radius: calc(12px * var(--s));
+  background: var(--bg);
+  color: var(--fg);
+  backdrop-filter: blur(calc(8px * var(--s)));
+  -webkit-backdrop-filter: blur(calc(8px * var(--s)));
+  transition: opacity 0.2s;
+}
+.widget.compact {
+  padding: calc(4px * var(--s));
+  border-radius: 50%;
+}
+.widget:not(.running) {
+  opacity: 0.72;
+}
+.widget:hover {
+  opacity: 1;
+}
+
+.icon {
+  position: relative;
+  flex: 0 0 calc(36px * var(--s));
+  width: calc(36px * var(--s));
+  height: calc(36px * var(--s));
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+}
+.icon svg {
+  position: relative;
+  z-index: 2;
+}
+
+.pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  animation: pulse 0.22s ease-out;
+}
+@keyframes pulse {
+  0% { opacity: 0.55; transform: scale(0.85); }
+  100% { opacity: 0; transform: scale(1.05); }
+}
+
+.flash {
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: calc(2px * var(--s)) solid currentColor;
+  opacity: 0;
+  animation: flash 0.35s ease-out;
+  z-index: 1;
+}
+.flash.perfect { color: var(--perfect); }
+.flash.great { color: var(--great); }
+.flash.good { color: var(--good); }
+.flash.miss { color: var(--miss); }
+@keyframes flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.combo {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: calc(14px * var(--s));
+  padding: 0 calc(3px * var(--s));
+  border-radius: calc(7px * var(--s));
+  background: var(--accent);
+  color: #0b1020;
+  font-size: calc(9px * var(--s));
+  font-weight: 700;
+  line-height: calc(14px * var(--s));
+  text-align: center;
+  z-index: 3;
+}
+.warn {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  width: calc(6px * var(--s));
+  height: calc(6px * var(--s));
+  border-radius: 50%;
+  background: var(--good);
+  z-index: 3;
+}
+.hint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: calc(9px * var(--s));
+  background: var(--bg);
+  border-radius: calc(4px * var(--s));
+  padding: 1px calc(3px * var(--s));
+  z-index: 4;
+}
+
+.bar {
+  display: flex;
+  gap: calc(4px * var(--s));
+  height: calc(36px * var(--s));
+  align-items: stretch;
+}
+.beat {
+  width: calc(34px * var(--s));
+  border-radius: calc(6px * var(--s));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: calc(2px * var(--s));
+  padding: calc(2px * var(--s));
+  box-sizing: border-box;
+  transition: background 0.06s, border-color 0.06s;
+}
+.beat.first {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+.beat.active {
+  background: rgba(122, 162, 255, 0.35);
+  border-color: var(--accent);
+}
+.beat.active.countin {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.dot {
+  flex: 0 1 calc(5px * var(--s));
+  min-width: 2px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.dot.on { background: var(--fg); }
+.dot.rest { border: 1px solid var(--muted); }
+.dot.perfect { background: var(--perfect); }
+.dot.great { background: var(--great); }
+.dot.good { background: var(--good); }
+.dot.miss { background: var(--miss); }
