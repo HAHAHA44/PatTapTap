@@ -102,6 +102,7 @@ export class RhythmEngine {
     // Notes already past their window count as misses; future ones are dropped.
     this.expireMisses(performance.now());
     this.pending = [];
+    this.dropTrailingMisses();
     if (!this.cfg.judge || judgedCount(this.stats) + this.stats.stray === 0) return null;
     const summary = summarize(this.stats, this.cfg, this.startedAt);
     summary.detail = {
@@ -113,6 +114,19 @@ export class RhythmEngine {
       strictAlternate: this.cfg.keyMode === "alternate" && this.cfg.strictAlternate,
     };
     return summary;
+  }
+
+  /**
+   * The run of misses right before stopping means the player had already stopped
+   * tapping; don't count it against them.
+   */
+  private dropTrailingMisses() {
+    let n = 0;
+    while (this.trace.length && this.trace[this.trace.length - 1].g === "miss") {
+      this.trace.pop();
+      n++;
+    }
+    this.stats.miss -= n;
   }
 
   private addTrace(h: TraceHit) {

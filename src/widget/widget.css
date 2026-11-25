@@ -151,6 +151,19 @@ html.w-widget #root {
   box-sizing: border-box;
   transition: background 0.06s, border-color 0.06s;
 }
+.beat {
+  position: relative;
+}
+/* extra tap that hit no note: brief red outline on that beat */
+.stray-mark {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: calc(2px * var(--s)) solid var(--miss);
+  opacity: 0;
+  animation: flash 0.4s ease-out;
+  pointer-events: none;
+}
 .beat.first {
   border-color: rgba(255, 255, 255, 0.26);
 }
@@ -169,6 +182,9 @@ html.w-widget #root {
   aspect-ratio: 1;
   border-radius: 50%;
   box-sizing: border-box;
+}
+.beat.ahead .dot {
+  opacity: 0.45;
 }
 .dot.on { background: var(--fg); }
 .dot.rest { border: 1px solid var(--muted); }

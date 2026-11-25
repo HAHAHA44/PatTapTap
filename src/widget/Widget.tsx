@@ -59,6 +59,8 @@ export default function Widget() {
   const [pulse, setPulse] = useState(0);
   const [flash, setFlash] = useState<Flash | null>(null);
   const [combo, setCombo] = useState(0);
+  const [stray, setStray] = useState<{ id: number; beat: number } | null>(null);
+  const beatRef = useRef<number | null>(null);
   const [, setResultsVersion] = useState(0);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>("stopped");
   const [hotkeyErrors, setHotkeyErrors] = useState<string[]>([]);
@@ -86,6 +88,8 @@ export default function Widget() {
         onStray: (stats) => {
           setCombo(stats.combo);
           setFlash({ id: ++flashId.current, grade: "miss" });
+          // Extra tap with no note nearby: mark the beat box it happened in.
+          if (beatRef.current !== null) setStray({ id: flashId.current, beat: beatRef.current });
         },
       }),
     [],
@@ -115,6 +119,8 @@ export default function Widget() {
     runningRef.current = false;
     setRunning(false);
     setBeat(null);
+    beatRef.current = null;
+    setStray(null);
     queue.current = [];
     watchKeys(false);
     broadcastState({ running: false });
@@ -295,6 +301,7 @@ export default function Widget() {
       }
       if (latest) {
         setBeat({ bar: latest.bar, beat: latest.slot.beat, countIn: latest.countIn });
+        beatRef.current = latest.countIn ? null : latest.slot.beat;
         setPulse((p) => p + 1);
         if (latest.slot.beat === 0) {
           for (const k of results.current.keys()) {
@@ -405,12 +412,20 @@ export default function Widget() {
         <div className="bar">
           {perBeat.map((cells, i) => {
             const active = running && beat?.beat === i;
+            // Beats not reached yet in this bar keep showing (dimmed) the previous bar's
+            // results, so late-judged misses on the last notes of a bar stay visible.
+            const ahead = running && beat !== null && i > beat.beat;
+            const barOf = ahead ? shownBar - 1 : shownBar;
             return (
-              <div key={i} className={`beat ${active ? "active" : ""} ${active && beat?.countIn ? "countin" : ""} ${i === 0 ? "first" : ""}`}>
+              <div
+                key={i}
+                className={`beat ${active ? "active" : ""} ${active && beat?.countIn ? "countin" : ""} ${i === 0 ? "first" : ""} ${ahead ? "ahead" : ""}`}
+              >
                 {cells.map((c, j) => {
-                  const g = c.on ? results.current.get(`${shownBar}:${c.noteIndex}`) : undefined;
+                  const g = c.on ? results.current.get(`${barOf}:${c.noteIndex}`) : undefined;
                   return <span key={j} className={`dot ${c.on ? "on" : "rest"} ${g ?? ""}`} />;
                 })}
+                {running && stray?.beat === i && <span key={stray.id} className="stray-mark" />}
               </div>
             );
           })}
