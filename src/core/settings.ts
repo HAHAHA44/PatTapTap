@@ -1,5 +1,6 @@
 import { VOICES, VoiceId } from "./audio";
 import { PRESETS, isValidPattern } from "./pattern";
+import { SONG_LEVELS, SongLevel } from "./songChart";
 import { CueMode, EngineConfig, JudgeWindows, KeyMode, MAX_BEATS, MAX_BPM, MIN_BPM, Pattern } from "./types";
 
 export interface Settings {
@@ -25,6 +26,12 @@ export interface Settings {
   widgetScale: number;
   hotkeys: { toggle: string; boss: string };
   language: "auto" | "zh" | "en";
+  mode: "metronome" | "song";
+  songId: string | null;
+  songLevel: SongLevel;
+  songClicks: boolean;
+  songVolume: number;
+  songRev: number;
 }
 
 /** Built-in judge windows (ms, ±). Not user-configurable, so scores stay comparable. */
@@ -54,6 +61,12 @@ export const DEFAULT_SETTINGS: Settings = {
   widgetScale: 1,
   hotkeys: { toggle: "Alt+Shift+B", boss: "Alt+Shift+H" },
   language: "auto",
+  mode: "metronome",
+  songId: null,
+  songLevel: "beats",
+  songClicks: false,
+  songVolume: 0.8,
+  songRev: 0,
 };
 
 const clamp = (v: unknown, lo: number, hi: number, d: number) =>
@@ -91,6 +104,12 @@ export function normalizeSettings(raw: unknown): Settings {
       boss: typeof r.hotkeys?.boss === "string" ? r.hotkeys.boss : d.hotkeys.boss,
     },
     language: pick(r.language, (v) => v === "auto" || v === "zh" || v === "en", d.language),
+    mode: pick(r.mode, (v) => v === "metronome" || v === "song", d.mode),
+    songId: typeof r.songId === "string" ? r.songId : null,
+    songLevel: pick(r.songLevel, (v) => SONG_LEVELS.includes(v), d.songLevel),
+    songClicks: pick(r.songClicks, (v) => typeof v === "boolean", d.songClicks),
+    songVolume: clamp(r.songVolume, 0, 1, d.songVolume),
+    songRev: clamp(r.songRev, 0, 1e9, 0),
   };
 }
 
@@ -100,6 +119,11 @@ export function allPatterns(s: Settings): Pattern[] {
 
 export function currentPattern(s: Settings): Pattern {
   return allPatterns(s).find((p) => p.id === s.patternId) ?? PRESETS[0];
+}
+
+/** Beats shown per bar: song charts are always 4/4. */
+export function beatsPerBar(s: Settings): number {
+  return s.mode === "song" ? 4 : s.beats;
 }
 
 export function toEngineConfig(s: Settings): EngineConfig {
@@ -120,5 +144,11 @@ export function toEngineConfig(s: Settings): EngineConfig {
     strictAlternate: s.strictAlternate,
     windows: { ...JUDGE_WINDOWS },
     calibrationMs: s.calibrationMs,
+    mode: s.mode,
+    songId: s.songId,
+    songLevel: s.songLevel,
+    songClicks: s.songClicks,
+    songVolume: s.songVolume,
+    songRev: s.songRev,
   };
 }

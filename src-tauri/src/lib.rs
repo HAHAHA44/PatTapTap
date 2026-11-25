@@ -1,4 +1,5 @@
 mod keys;
+mod songs;
 
 use std::collections::HashMap;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -171,7 +172,13 @@ pub fn run() {
             restart_app,
             quit_app,
             set_tray_labels,
-            log_js
+            log_js,
+            songs::song_save_audio,
+            songs::song_load_audio,
+            songs::song_save_meta,
+            songs::song_read_meta,
+            songs::song_list,
+            songs::song_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

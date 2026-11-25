@@ -21,6 +21,7 @@ import {
 } from "../platform/bridge";
 import PatternEditor, { PatternPreview } from "./PatternEditor";
 import Calibration from "./Calibration";
+import SongSection from "./SongSection";
 import HistoryDetail, { fmtTime, historyPatternName } from "./HistoryDetail";
 import "./settings.css";
 
@@ -71,7 +72,9 @@ export default function SettingsApp() {
         <div className="brand">
           {t("app.name")}
           <span className="sub">
-            {s.beats}/4 · {s.bpm} BPM · {patternName(currentPattern(s))}
+            {s.mode === "song"
+              ? `${t("mode.song")} · ${t(`level.${s.songLevel}`)}`
+              : `${s.beats}/4 · ${s.bpm} BPM · ${patternName(currentPattern(s))}`}
           </span>
         </div>
         <button className={run.running ? "danger" : "primary"} onClick={() => emit(EV.cmd, "toggle")}>
@@ -154,6 +157,28 @@ function RhythmTab({ s, update }: TabProps) {
     }
   };
 
+  const modeSwitch = (
+    <section>
+      <h3>{t("rhythm.mode")}</h3>
+      <div className="seg">
+        {(["metronome", "song"] as const).map((m) => (
+          <button key={m} className={s.mode === m ? "on" : ""} onClick={() => update({ mode: m })}>
+            {t(`mode.${m}`)}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+
+  if (s.mode === "song") {
+    return (
+      <>
+        {modeSwitch}
+        <SongSection s={s} update={update} />
+      </>
+    );
+  }
+
   if (editing) {
     return (
       <section>
@@ -165,6 +190,7 @@ function RhythmTab({ s, update }: TabProps) {
 
   return (
     <>
+      {modeSwitch}
       <section>
         <h3>{t("rhythm.tempo")}</h3>
         <div className="row">

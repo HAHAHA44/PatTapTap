@@ -405,3 +405,11 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .expect { stroke: var(--fg); stroke-width: 1.5; opacity: 0.55; }
 .w-settings .stem { stroke: var(--series); stroke-width: 1; opacity: 0.5; }
 .w-settings .lg-expect { width: 2px; height: 10px; background: var(--fg); opacity: 0.55; }
+
+.w-settings .songs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.w-settings .song { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.w-settings .song.on { border-color: var(--accent); background: var(--accent-soft); }
+.w-settings .song-name { font-weight: 600; margin-bottom: 2px; word-break: break-all; }
+.w-settings .seg-note { font-weight: 400; opacity: 0.7; font-size: 12px; }
+.w-settings .filebtn.disabled { opacity: 0.45; pointer-events: none; }
+.w-settings .pact button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }

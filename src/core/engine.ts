@@ -1,5 +1,6 @@
 import { ClickSynth, VoiceId } from "./audio";
 import { expandBar } from "./pattern";
+import type { ChartBar } from "./songChart";
 import { emptyStats, record, recordStray, summarize, judgedCount } from "./stats";
 import { Ticker } from "./ticker";
 import {
@@ -25,28 +26,69 @@ interface PendingNote {
   hand: 0 | 1;
 }
 
+/** A song to play along with: the audio plus the chart of notes to tap. */
+export interface SongPlayback {
+  id: string;
+  name: string;
+  bpm: number;
+  buffer: AudioBuffer;
+  bars: ChartBar[];
+  volume: number;
+  /** Overlay metronome clicks on the detected beats. */
+  clicks: boolean;
+}
+
+/** One bar as the scheduler sees it. Times are seconds from the session origin. */
+interface PlayBar {
+  start: number;
+  beats: number[];
+  end: number;
+  slots: BarSlot[];
+  countIn: boolean;
+}
+
 export interface EngineCallbacks {
   /** Fired when an event is scheduled (ahead of time). Use perfTime to render it. */
   onSchedule?(e: ScheduledEvent): void;
   onResult?(r: NoteResult, stats: LiveStats): void;
   onStray?(stats: LiveStats): void;
+  /** The song finished playing (song mode only). */
+  onEnd?(): void;
+}
+
+/** Slots of a bar whose notes are indexed by grid position, so the same position
+ *  keeps the same index in every bar (song charts vary bar to bar). */
+function gridSlots(cells: boolean[][]): BarSlot[] {
+  const slots: BarSlot[] = [];
+  cells.forEach((c, b) =>
+    c.forEach((on, j) =>
+      slots.push({ beat: b, sub: j, subdivision: c.length, pos: b + j / c.length, isBeatStart: j === 0, isNote: on, noteIndex: on ? b * c.length + j : -1 }),
+    ),
+  );
+  return slots;
 }
 
 /**
- * Metronome + judge. Timing follows the "two clocks" pattern: a coarse timer
- * schedules sounds precisely on the AudioContext clock slightly ahead of time,
- * and audio time is mapped to performance.now() for visuals and judging.
+ * Metronome / song player + judge. Timing follows the "two clocks" pattern: a coarse
+ * timer schedules sounds precisely on the AudioContext clock slightly ahead of time,
+ * and audio time is mapped to performance.now() for visuals and judging. Both modes
+ * are driven bar by bar through `barAt()`.
  */
 export class RhythmEngine {
   private ctx: AudioContext | null = null;
   private synth: ClickSynth | null = null;
   private ticker = new Ticker(TICK_MS, () => this.tick());
   private cfg!: EngineConfig;
-  private slots: BarSlot[] = [];
+  private song: SongPlayback | null = null;
+  private songSrc: AudioBufferSourceNode | null = null;
+  private songGain: GainNode | null = null;
+  private curBar: PlayBar | null = null;
   private slotIdx = 0;
   private bar = 0;
-  private barStart = 0; // audio seconds
-  private spb = 0.5;
+  private origin = 0; // audio seconds of session time 0
+  private patternSlots: BarSlot[] = [];
+  private barLen = 2;
+  private songEnded = false;
   private pending: PendingNote[] = [];
   private noteCounter = 0;
   private clockOffset = 0; // perf ms = audio s * 1000 + clockOffset
@@ -55,42 +97,68 @@ export class RhythmEngine {
   private startToken = 0;
   private stats: LiveStats = emptyStats();
   private trace: TraceHit[] = [];
-  private t0Perf = 0; // perf ms of bar 0 (after count-in)
+  private t0Perf = 0; // perf ms of bar 0 (after count-in / song start)
   running = false;
 
   constructor(private cb: EngineCallbacks = {}) {}
 
-  /** Must be awaited; may need a user gesture on some platforms. */
-  async start(cfg: EngineConfig): Promise<boolean> {
-    if (this.running) this.stop();
-    // A newer start() (or a stop()) supersedes this one while we await the audio device.
-    const token = ++this.startToken;
-    this.cfg = cfg;
+  /** Decode audio file bytes with this engine's audio context. */
+  async decode(bytes: ArrayBuffer): Promise<AudioBuffer> {
+    this.ensureContext();
+    return this.ctx!.decodeAudioData(bytes);
+  }
+
+  private ensureContext() {
     if (!this.ctx) {
       this.ctx = new AudioContext({ latencyHint: "interactive" });
       this.synth = new ClickSynth(this.ctx);
     }
+  }
+
+  /** Must be awaited; may need a user gesture on some platforms. */
+  async start(cfg: EngineConfig, song: SongPlayback | null = null): Promise<boolean> {
+    if (this.running) this.stop();
+    // A newer start() (or a stop()) supersedes this one while we await the audio device.
+    const token = ++this.startToken;
+    this.cfg = cfg;
+    this.ensureContext();
+    const ctx = this.ctx!;
     try {
-      await this.ctx.resume();
+      await ctx.resume();
     } catch {
       /* ignore */
     }
     if (token !== this.startToken) return false;
-    if (this.ctx.state !== "running") return false;
+    if (ctx.state !== "running") return false;
     this.synth!.setVolume(cfg.volume);
     this.synth!.setVoice(cfg.voice);
     this.clockReady = false;
     this.syncClock();
-    this.slots = expandBar(cfg.pattern, cfg.beats);
+
+    this.song = song;
+    this.songEnded = false;
+    this.origin = ctx.currentTime + START_DELAY_S;
+    this.patternSlots = expandBar(cfg.pattern, cfg.beats);
+    this.barLen = (cfg.beats * 60) / cfg.bpm;
+    this.bar = !song && cfg.countIn ? -1 : 0;
+    this.curBar = null;
     this.slotIdx = 0;
-    this.bar = cfg.countIn ? -1 : 0;
-    this.spb = 60 / cfg.bpm;
-    this.barStart = this.ctx.currentTime + START_DELAY_S;
+    if (song) {
+      const g = ctx.createGain();
+      g.gain.value = song.volume;
+      g.connect(ctx.destination);
+      const src = ctx.createBufferSource();
+      src.buffer = song.buffer;
+      src.connect(g);
+      src.start(this.origin);
+      this.songSrc = src;
+      this.songGain = g;
+    }
     this.pending = [];
     this.noteCounter = 0;
     this.stats = emptyStats();
     this.trace = [];
-    this.t0Perf = this.audioToPerf(this.barStart + (cfg.countIn ? cfg.beats * this.spb : 0));
+    this.t0Perf = this.audioToPerf(this.origin + (!song && cfg.countIn ? this.barLen : 0));
     this.startedAt = Date.now();
     this.running = true;
     this.tick();
@@ -105,21 +173,47 @@ export class RhythmEngine {
     this.running = false;
     this.ticker.stop();
     this.synth?.cut();
+    this.stopSong();
     // Notes already past their window count as misses; future ones are dropped.
     this.expireMisses(performance.now());
     this.pending = [];
     this.dropTrailingMisses();
+    const song = this.song;
+    this.song = null; // release the decoded audio
     if (!this.cfg.judge || judgedCount(this.stats) + this.stats.stray === 0) return null;
     const summary = summarize(this.stats, this.cfg, this.startedAt);
+    const cfg = this.cfg;
     summary.detail = {
       trace: this.trace,
       truncated: this.trace.length >= MAX_TRACE,
-      windows: { ...this.cfg.windows },
-      calibrationMs: this.cfg.calibrationMs,
-      cells: Array.from({ length: this.cfg.beats }, (_, i) => this.cfg.pattern.cells[i % this.cfg.pattern.cells.length]),
-      strictAlternate: this.cfg.keyMode === "alternate" && this.cfg.strictAlternate,
+      windows: { ...cfg.windows },
+      calibrationMs: cfg.calibrationMs,
+      cells: song
+        ? Array.from({ length: 4 }, (_, i) => new Array(song.bars[0]?.cells[i].length ?? 1).fill(true))
+        : Array.from({ length: cfg.beats }, (_, i) => cfg.pattern.cells[i % cfg.pattern.cells.length]),
+      strictAlternate: cfg.keyMode === "alternate" && cfg.strictAlternate,
     };
+    if (song) {
+      summary.patternName = song.name;
+      summary.patternId = `song:${song.id}`;
+      summary.patternBuiltin = false;
+      summary.bpm = song.bpm;
+      summary.beats = 4;
+      summary.detail.barStarts = song.bars.map((b) => Math.round(b.start * 1000));
+    }
     return summary;
+  }
+
+  private stopSong() {
+    try {
+      this.songSrc?.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.songSrc?.disconnect();
+    this.songGain?.disconnect();
+    this.songSrc = null;
+    this.songGain = null;
   }
 
   /**
@@ -147,8 +241,22 @@ export class RhythmEngine {
     this.synth?.setVoice(v);
   }
 
+  setSongVolume(v: number) {
+    if (this.songGain) this.songGain.gain.value = v;
+    if (this.song) this.song.volume = v;
+  }
+
   get liveStats(): LiveStats {
     return this.stats;
+  }
+
+  /** Grid slots of bar `i` as displayed and judged (null if there is no such bar). */
+  slotsOf(i: number): BarSlot[] | null {
+    if (this.song) {
+      const b = this.song.bars[i];
+      return b ? gridSlots(b.cells) : null;
+    }
+    return this.patternSlots;
   }
 
   /** Feed a tap. `code` is a DOM KeyboardEvent.code; `t` a performance.now() timestamp. */
@@ -248,20 +356,60 @@ export class RhythmEngine {
     }
   }
 
+  /** Bar `i` in session time. Metronome bars are uniform; song bars follow the chart. */
+  private barAt(i: number): PlayBar | null {
+    if (this.song) {
+      const b = this.song.bars[i];
+      if (!b) return null;
+      return { start: b.start, beats: b.beats, end: b.end, slots: gridSlots(b.cells), countIn: false };
+    }
+    const first = this.cfg.countIn ? -1 : 0;
+    const start = (i - first) * this.barLen;
+    const spb = this.barLen / this.cfg.beats;
+    return {
+      start,
+      beats: Array.from({ length: this.cfg.beats }, (_, k) => start + k * spb),
+      end: start + this.barLen,
+      slots: this.patternSlots,
+      countIn: i < 0,
+    };
+  }
+
   private tick() {
     if (!this.running || !this.ctx) return;
     this.syncClock();
     this.expireMisses(performance.now());
-    const horizon = this.ctx.currentTime + LOOKAHEAD_S;
+    const ctx = this.ctx;
+    const horizon = ctx.currentTime + LOOKAHEAD_S;
     const cfg = this.cfg;
-    for (;;) {
-      const slot = this.slots[this.slotIdx];
-      const time = this.barStart + slot.pos * this.spb;
-      if (time >= horizon) break;
-      const countIn = this.bar < 0;
+    const song = this.song;
 
-      if (cfg.cue !== "visual") {
-        const beatKind = slot.beat === 0 && cfg.accent ? "accent" : "beat";
+    if (song && this.songEnded) {
+      // all notes scheduled: finish once the audio is over and the last note judged
+      if (!this.pending.length && ctx.currentTime > this.origin + song.buffer.duration) this.cb.onEnd?.();
+      return;
+    }
+
+    for (;;) {
+      if (!this.curBar) {
+        this.curBar = this.barAt(this.bar);
+        if (!this.curBar) {
+          this.songEnded = true;
+          return;
+        }
+      }
+      const bar = this.curBar;
+      const slot = bar.slots[this.slotIdx];
+      const bs = bar.beats[slot.beat];
+      const be = bar.beats[slot.beat + 1] ?? bar.end;
+      const time = this.origin + bs + (slot.sub / slot.subdivision) * (be - bs);
+      if (time >= horizon) break;
+      const countIn = bar.countIn;
+
+      const beatKind = slot.beat === 0 && cfg.accent ? "accent" : "beat";
+      if (song) {
+        if (song.clicks && slot.isBeatStart) this.synth!.click(time, beatKind);
+      } else if (cfg.cue !== "visual") {
         if (countIn) {
           if (slot.isBeatStart) this.synth!.click(time, beatKind);
         } else if (cfg.muteBeatClick) {
@@ -282,10 +430,10 @@ export class RhythmEngine {
       }
 
       this.slotIdx++;
-      if (this.slotIdx >= this.slots.length) {
+      if (this.slotIdx >= bar.slots.length) {
         this.slotIdx = 0;
         this.bar++;
-        this.barStart += cfg.beats * this.spb;
+        this.curBar = null;
       }
     }
   }

@@ -85,6 +85,15 @@ export interface EngineConfig {
   windows: JudgeWindows;
   /** Added to expected hit times to compensate audio/input latency. */
   calibrationMs: number;
+  /** Song mode settings; the engine gets the song itself separately. Kept here so a
+   *  change to any of them restarts practice like other timing settings. */
+  mode: "metronome" | "song";
+  songId: string | null;
+  songLevel: "beats" | "drums" | "all";
+  songClicks: boolean;
+  songVolume: number;
+  /** Bumped when the selected song's analysis is edited (tempo ×2 etc.). */
+  songRev: number;
 }
 
 export interface LiveStats {
@@ -123,6 +132,8 @@ export interface SessionDetail {
   /** Pattern grid as practiced, expanded to the bar. */
   cells: boolean[][];
   strictAlternate: boolean;
+  /** Song sessions: start of each bar in ms (bars aren't evenly spaced). */
+  barStarts?: number[];
 }
 
 export interface SessionSummary {

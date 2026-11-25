@@ -106,7 +106,7 @@ export default function HistoryDetail({ s, onBack }: { s: SessionSummary; onBack
           strict={d.strictAlternate}
           bpm={s.bpm}
           beats={s.beats}
-          cells={d.cells}
+          barStarts={d.barStarts}
           trace={d.trace} movingAvg={a.movingAvg} windows={d.windows} labels={labels} />
         {d.truncated && <p className="note">{t("detail.truncated")}</p>}
       </section>
@@ -181,7 +181,7 @@ export default function HistoryDetail({ s, onBack }: { s: SessionSummary; onBack
         <table>
           {statHead(t("col.position"))}
           <tbody>
-            {a.positions.map((p) => (
+            {a.positions.filter((p) => p.count > 0).map((p) => (
               <tr key={p.noteIndex} className={showWorst && p.noteIndex === worst.noteIndex ? "hl" : ""}>
                 <td>{formatPosition(p.pos)}</td>
                 <GroupCells g={p} />

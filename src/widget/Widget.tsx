@@ -5,7 +5,10 @@ import { Menu } from "@tauri-apps/api/menu";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { RhythmEngine } from "../core/engine";
 import { expandBar } from "../core/pattern";
-import { currentPattern, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
+import { beatsPerBar, currentPattern, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
+import { buildChart } from "../core/songChart";
+import { songs } from "../platform/songs";
+import { BarSlot } from "../core/types";
 import { Grade, ScheduledEvent } from "../core/types";
 import {
   appendHistory,
@@ -32,7 +35,8 @@ const PAD = 4;
 function widgetSize(s: Settings): [number, number] {
   const k = s.widgetScale;
   if (s.cue === "sound") return [Math.round(H * k), Math.round(H * k)];
-  return [Math.round((PAD + ICON + GAP + s.beats * BEAT_W + (s.beats - 1) * GAP + PAD) * k), Math.round(H * k)];
+  const n = beatsPerBar(s);
+  return [Math.round((PAD + ICON + GAP + n * BEAT_W + (n - 1) * GAP + PAD) * k), Math.round(H * k)];
 }
 
 interface Flash { id: number; grade: Grade }
@@ -87,6 +91,8 @@ export default function Widget() {
           setCombo(stats.combo);
           setFlash({ id: ++flashId.current, grade: r.grade });
         },
+        // Song finished: stop like the user pressed stop (saves the session).
+        onEnd: () => void stopRef.current(),
         onStray: (stats) => {
           setCombo(stats.combo);
           setFlash({ id: ++flashId.current, grade: "miss" });
@@ -155,7 +161,20 @@ export default function Widget() {
     results.current.clear();
     queue.current = [];
     setCombo(0);
-    const ok = await engine.start(toEngineConfig(s));
+    let song = null;
+    if (s.mode === "song") {
+      // Load and decode the song each time (decoded audio is large; don't keep it idle).
+      if (!s.songId) return setHint(t("widget.noSong"));
+      try {
+        const [meta, bytes] = await Promise.all([songs.read(s.songId), songs.loadAudio(s.songId)]);
+        const bars = buildChart(meta, s.songLevel);
+        if (!bars.length) return setHint(t("widget.noSong"));
+        song = { id: meta.id, name: meta.name, bpm: meta.bpm, buffer: await engine.decode(bytes), bars, volume: s.songVolume, clicks: s.songClicks };
+      } catch {
+        return setHint(t("widget.noSong"));
+      }
+    }
+    const ok = await engine.start(toEngineConfig(s), song);
     if (!ok) {
       setHint(t("widget.enableSound"));
       return;
@@ -188,10 +207,11 @@ export default function Widget() {
       // Restart with the new config if something timing-related changed mid-practice.
       if (runningRef.current && prev && JSON.stringify(toEngineConfig(prev)) !== JSON.stringify(toEngineConfig(s))) {
         // Volume and sound type change live; anything else restarts playback.
-        const live = (c: ReturnType<typeof toEngineConfig>) => JSON.stringify({ ...c, volume: 0, voice: "" });
+        const live = (c: ReturnType<typeof toEngineConfig>) => JSON.stringify({ ...c, volume: 0, voice: "", songVolume: 0 });
         if (live(toEngineConfig(prev)) === live(toEngineConfig(s))) {
           engine.setVolume(s.volume);
           engine.setVoice(s.voice);
+          engine.setSongVolume(s.songVolume);
         }
         else
           await serial(async () => {
@@ -387,16 +407,29 @@ export default function Widget() {
 
   // ---- render ---------------------------------------------------------------
   const pattern = settings ? currentPattern(settings) : null;
-  const slots = useMemo(
-    () => (pattern && settings ? expandBar(pattern, settings.beats) : []),
-    [pattern, settings?.beats],
+  const idleSlots = useMemo(
+    () =>
+      settings?.mode === "song"
+        ? expandBar({ id: "", name: "", cells: [[true], [true], [true], [true]] }, 4)
+        : pattern && settings
+          ? expandBar(pattern, settings.beats)
+          : [],
+    [pattern, settings?.beats, settings?.mode],
   );
   if (!settings) return null;
 
   const visual = settings.cue !== "sound";
   const shownBar = beat?.bar ?? 0;
-  const perBeat: { on: boolean; noteIndex: number }[][] = Array.from({ length: settings.beats }, () => []);
-  for (const sl of slots) perBeat[sl.beat].push({ on: sl.isNote, noteIndex: sl.noteIndex });
+  const nBeats = beatsPerBar(settings);
+  // Dots per beat for a bar; song charts differ bar to bar, so ask the engine.
+  const layout = (bar: number) => {
+    const sl: BarSlot[] = (running && engine.slotsOf(bar)) || idleSlots;
+    const per: { on: boolean; noteIndex: number }[][] = Array.from({ length: nBeats }, () => []);
+    for (const x of sl) per[x.beat]?.push({ on: x.isNote, noteIndex: x.noteIndex });
+    return per;
+  };
+  const perBeat = layout(shownBar);
+  const prevBar = layout(shownBar - 1);
 
   const warn = keyStatus !== "running";
   const title = [
@@ -434,12 +467,14 @@ export default function Widget() {
       </div>
       {visual && (
         <div className="bar">
-          {perBeat.map((cells, i) => {
+          {perBeat.map((cellsNow, i) => {
+            let cells = cellsNow;
             const active = running && beat?.beat === i;
             // Beats not reached yet in this bar keep showing (dimmed) the previous bar's
             // results, so late-judged misses on the last notes of a bar stay visible.
             const ahead = running && beat !== null && i > beat.beat;
             const barOf = ahead ? shownBar - 1 : shownBar;
+            if (ahead) cells = prevBar[i];
             return (
               <div
                 key={i}

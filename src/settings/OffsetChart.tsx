@@ -24,12 +24,13 @@ export default function OffsetChart({
   strict,
   bpm,
   beats,
-  cells,
+  barStarts,
 }: {
+  /** Song sessions: actual bar start times (ms); otherwise bars are evenly spaced. */
+  barStarts?: number[];
   strict: boolean;
   bpm: number;
   beats: number;
-  cells: boolean[][];
   trace: TraceHit[];
   movingAvg: [number, number][];
   windows: JudgeWindows;
@@ -48,14 +49,30 @@ export default function OffsetChart({
   const plotW = width - M.l - M.r;
   const beatMs = 60000 / bpm;
   const barMs = beats * beatMs;
-  // ms offset of every note inside one bar
-  const noteOffsets = useMemo(() => {
-    const out: number[] = [];
-    cells.forEach((c, b) => c.forEach((on, j) => on && out.push((b + j / c.length) * beatMs)));
-    return out;
-  }, [cells, beatMs]);
+  // Correct time of every judged note (hits and misses), straight from the trace.
+  const noteTimes = useMemo(() => trace.filter((h) => h.g !== "stray").map((h) => h.t), [trace]);
+  const minGap = useMemo(() => {
+    let g = Infinity;
+    for (let i = 1; i < noteTimes.length; i++) if (noteTimes[i] - noteTimes[i - 1] > 1) g = Math.min(g, noteTimes[i] - noteTimes[i - 1]);
+    return Number.isFinite(g) ? g : barMs;
+  }, [noteTimes, barMs]);
+  // Bar k starts at barStart(k): real positions for songs, evenly spaced otherwise.
+  const avgBar = barStarts && barStarts.length > 1 ? (barStarts[barStarts.length - 1] - barStarts[0]) / (barStarts.length - 1) : barMs;
+  const barStart = (k: number) =>
+    barStarts?.length ? (k < barStarts.length ? barStarts[k] : barStarts[barStarts.length - 1] + (k - barStarts.length + 1) * avgBar) : k * barMs;
+  /** Index of the bar containing time tt. */
+  const barIndex = (tt: number) => {
+    if (!barStarts?.length) return Math.floor((tt + 0.5) / barMs);
+    let lo = 0, hi = barStarts.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (barStarts[m] <= tt + 0.5) lo = m + 1;
+      else hi = m;
+    }
+    return lo - 1 + (tt > barStarts[barStarts.length - 1] + avgBar ? Math.floor((tt - barStarts[barStarts.length - 1]) / avgBar) : 0);
+  };
   const lastT = Math.max(0, ...trace.map((x) => x.t));
-  const tMax = Math.max(1000, Math.ceil((lastT + 1) / barMs) * barMs); // end on a bar line
+  const tMax = Math.max(1000, barStart(barIndex(lastT) + 1)); // end on a bar line
 
   const [dom, setDom] = useState<[number, number]>([0, tMax]);
   const domRef = useRef(dom);
@@ -143,21 +160,15 @@ export default function OffsetChart({
 
   // Bar / beat grid and on-time note positions for the visible range.
   const pxPerMs = plotW / (dom[1] - dom[0]);
-  const firstBar = Math.max(0, Math.floor(dom[0] / barMs));
-  const lastBar = Math.ceil(dom[1] / barMs);
+  const firstBar = Math.max(0, barIndex(dom[0]));
+  const lastBar = barIndex(dom[1]) + 1;
   const bars: number[] = [];
   for (let b = firstBar; b <= lastBar; b++) bars.push(b);
-  const labelStep = Math.max(1, Math.ceil(MIN_BAR_LABEL_PX / (barMs * pxPerMs)));
-  const showBeats = beatMs * pxPerMs >= MIN_BEAT_LINE_PX;
-  const minGap = noteOffsets.length > 1 ? Math.min(...noteOffsets.slice(1).map((o, i) => o - noteOffsets[i]), barMs - noteOffsets[noteOffsets.length - 1] + noteOffsets[0]) : barMs;
+  const labelStep = Math.max(1, Math.ceil(MIN_BAR_LABEL_PX / (avgBar * pxPerMs)));
+  const showBeats = (avgBar / beats) * pxPerMs >= MIN_BEAT_LINE_PX;
   const showNotes = minGap * pxPerMs >= MIN_NOTE_PX;
-  const expected: number[] = [];
-  if (showNotes)
-    for (const b of bars) for (const o of noteOffsets) {
-      const tt = b * barMs + o;
-      if (tt >= dom[0] && tt <= dom[1] && tt <= lastT + 1) expected.push(tt);
-    }
-  const barOf = (tt: number) => Math.floor((tt + 0.5) / barMs) + 1;
+  const expected = showNotes ? noteTimes.filter((tt) => tt >= dom[0] && tt <= dom[1]) : [];
+  const barOf = (tt: number) => barIndex(tt) + 1;
 
   const inView = (t: number) => t >= dom[0] && t <= dom[1];
   const visible = trace.filter((h) => inView(h.t));
@@ -232,12 +243,12 @@ export default function OffsetChart({
           {showBeats &&
             bars.flatMap((b) =>
               Array.from({ length: beats - 1 }, (_, i) => {
-                const xx = x(b * barMs + (i + 1) * beatMs);
+                const xx = x(barStart(b) + ((i + 1) * (barStart(b + 1) - barStart(b))) / beats);
                 return <line key={`${b}-${i}`} className="beat-line" x1={xx} x2={xx} y1={M.t} y2={H - M.b} />;
               }),
             )}
           {bars.map((b) => (
-            <line key={b} className="bar-line" x1={x(b * barMs)} x2={x(b * barMs)} y1={M.t} y2={H - M.b} />
+            <line key={b} className="bar-line" x1={x(barStart(b))} x2={x(barStart(b))} y1={M.t} y2={H - M.b} />
           ))}
         </g>
         {/* judge bands, widest first */}
@@ -261,14 +272,15 @@ export default function OffsetChart({
         <text className="axis" x={M.l} y={14}>{t("chart.late")}</text>
         <text className="axis" x={M.l} y={H - 4}>{t("chart.early")}</text>
         <text className="axis" x={width - M.r} y={H - 4} textAnchor="end">
-          {zoomed ? t("chart.range", { a: barOf(dom[0]), b: Math.max(barOf(dom[0]), Math.ceil(dom[1] / barMs)) }) : ""}
+          {zoomed ? t("chart.range", { a: barOf(dom[0]), b: Math.max(barOf(dom[0]), barOf(dom[1] - 1)) }) : ""}
         </text>
         {bars
-          .filter((b) => b % labelStep === 0 && b * barMs < tMax)
+          .filter((b) => b % labelStep === 0 && barStart(b) < tMax)
           .map((b) => {
             // label each bar at its middle when there's room, else at its start
-            const mid = barMs * pxPerMs >= MIN_BAR_LABEL_PX;
-            const xx = x(b * barMs + (mid ? barMs / 2 : 0));
+            const len = barStart(b + 1) - barStart(b);
+            const mid = len * pxPerMs >= MIN_BAR_LABEL_PX;
+            const xx = x(barStart(b) + (mid ? len / 2 : 0));
             if (xx < M.l - 1 || xx > width - M.r + 1) return null;
             return (
               <text key={b} className="axis" x={xx} y={H - M.b + 14} textAnchor="middle">

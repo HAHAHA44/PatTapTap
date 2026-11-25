@@ -71,6 +71,12 @@ export default function Calibration({ current, onApply }: { current: number; onA
       strictAlternate: false,
       windows: { perfect: 300, great: 300, good: 300 },
       calibrationMs: 0,
+      mode: "metronome",
+      songId: null,
+      songLevel: "beats",
+      songClicks: false,
+      songVolume: 0,
+      songRev: 0,
     });
     if (ok) setPhase("run");
   };
