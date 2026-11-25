@@ -1,3 +1,5 @@
+import type { VoiceId } from "./audio";
+
 // Pure data types for the rhythm core. No platform (Tauri/DOM) dependencies,
 // so this folder can be reused by a future mobile or web build.
 
@@ -74,6 +76,7 @@ export interface EngineConfig {
   muteBeatClick: boolean;
   accent: boolean;
   volume: number;
+  voice: VoiceId;
   countIn: boolean;
   judge: boolean;
   keyMode: KeyMode;

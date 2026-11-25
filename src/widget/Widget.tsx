@@ -187,9 +187,12 @@ export default function Widget() {
       if (prev) resizeAnchored(w, h).catch(() => {});
       // Restart with the new config if something timing-related changed mid-practice.
       if (runningRef.current && prev && JSON.stringify(toEngineConfig(prev)) !== JSON.stringify(toEngineConfig(s))) {
-        const onlyVolume =
-          JSON.stringify({ ...toEngineConfig(prev), volume: 0 }) === JSON.stringify({ ...toEngineConfig(s), volume: 0 });
-        if (onlyVolume) engine.setVolume(s.volume);
+        // Volume and sound type change live; anything else restarts playback.
+        const live = (c: ReturnType<typeof toEngineConfig>) => JSON.stringify({ ...c, volume: 0, voice: "" });
+        if (live(toEngineConfig(prev)) === live(toEngineConfig(s))) {
+          engine.setVolume(s.volume);
+          engine.setVoice(s.voice);
+        }
         else
           await serial(async () => {
             await stopNow();

@@ -63,6 +63,7 @@ export default function Calibration({ current, onApply }: { current: number; onA
       muteBeatClick: false,
       accent: false,
       volume: 0.8,
+      voice: "wood",
       countIn: true,
       judge: true,
       keyMode: "single",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
+import { ClickSynth, VOICES, VoiceId } from "../core/audio";
 import { isValidPattern, newPatternId } from "../core/pattern";
 import { allPatterns, currentPattern, MAX_SCALE, MIN_SCALE, Settings } from "../core/settings";
 import { SUPPORTED_KEYS } from "../core/keys";
@@ -245,6 +246,15 @@ function RhythmTab({ s, update }: TabProps) {
 }
 
 // ---------------------------------------------------------------- cue
+let previewSynth: ClickSynth | null = null;
+function previewVoice(voice: VoiceId, volume: number) {
+  if (!previewSynth) previewSynth = new ClickSynth(new AudioContext({ latencyHint: "interactive" }));
+  previewSynth.cut(); // stop a preview that's still playing
+  previewSynth.setVoice(voice);
+  previewSynth.setVolume(volume);
+  previewSynth.preview();
+}
+
 function CueTab({ s, update }: TabProps) {
   const opts: [CueMode, MessageKey][] = [
     ["sound", "cue.sound"],
@@ -264,6 +274,24 @@ function CueTab({ s, update }: TabProps) {
       </section>
       <section>
         <h3>{t("cue.audio")}</h3>
+        <div className="row">
+          <span>{t("cue.voice")}</span>
+          <div className="seg">
+            {VOICES.map((v) => (
+              <button
+                key={v}
+                className={s.voice === v ? "on" : ""}
+                onClick={() => {
+                  update({ voice: v });
+                  previewVoice(v, s.volume);
+                }}
+              >
+                {t(`voice.${v}`)}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => previewVoice(s.voice, s.volume)}>▶ {t("cue.preview")}</button>
+        </div>
         <div className="row">
           <span>{t("cue.volume")}</span>
           <input type="range" min={0} max={1} step={0.05} value={s.volume} onChange={(e) => update({ volume: Number(e.target.value) })} />

@@ -1,3 +1,4 @@
+import { VOICES, VoiceId } from "./audio";
 import { PRESETS, isValidPattern } from "./pattern";
 import { CueMode, EngineConfig, JudgeWindows, KeyMode, MAX_BEATS, MAX_BPM, MIN_BPM, Pattern } from "./types";
 
@@ -12,6 +13,7 @@ export interface Settings {
   muteBeatClick: boolean;
   accent: boolean;
   volume: number;
+  voice: VoiceId;
   countIn: boolean;
   iconFeedback: boolean;
   keyMode: KeyMode;
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   muteBeatClick: false,
   accent: true,
   volume: 0.6,
+  voice: "wood",
   countIn: true,
   iconFeedback: true,
   keyMode: "single",
@@ -71,6 +74,7 @@ export function normalizeSettings(raw: unknown): Settings {
     muteBeatClick: pick(r.muteBeatClick, (v) => typeof v === "boolean", d.muteBeatClick),
     accent: pick(r.accent, (v) => typeof v === "boolean", d.accent),
     volume: clamp(r.volume, 0, 1, d.volume),
+    voice: pick(r.voice, (v) => (VOICES as readonly string[]).includes(v), d.voice),
     countIn: pick(r.countIn, (v) => typeof v === "boolean", d.countIn),
     iconFeedback: pick(r.iconFeedback, (v) => typeof v === "boolean", d.iconFeedback),
     keyMode: pick(r.keyMode, (v) => v === "single" || v === "alternate", d.keyMode),
@@ -108,6 +112,7 @@ export function toEngineConfig(s: Settings): EngineConfig {
     muteBeatClick: s.soundPattern && s.muteBeatClick,
     accent: s.accent,
     volume: s.volume,
+    voice: s.voice,
     countIn: s.countIn,
     judge: true,
     keyMode: s.keyMode,

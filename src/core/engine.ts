@@ -1,4 +1,4 @@
-import { ClickSynth } from "./audio";
+import { ClickSynth, VoiceId } from "./audio";
 import { expandBar } from "./pattern";
 import { emptyStats, record, recordStray, summarize, judgedCount } from "./stats";
 import { Ticker } from "./ticker";
@@ -78,6 +78,7 @@ export class RhythmEngine {
     if (token !== this.startToken) return false;
     if (this.ctx.state !== "running") return false;
     this.synth!.setVolume(cfg.volume);
+    this.synth!.setVoice(cfg.voice);
     this.clockReady = false;
     this.syncClock();
     this.slots = expandBar(cfg.pattern, cfg.beats);
@@ -140,6 +141,10 @@ export class RhythmEngine {
 
   setVolume(v: number) {
     this.synth?.setVolume(v);
+  }
+
+  setVoice(v: VoiceId) {
+    this.synth?.setVoice(v);
   }
 
   get liveStats(): LiveStats {
