@@ -75,9 +75,11 @@ export default function Widget() {
   const flashId = useRef(0);
 
   // ---- engine -------------------------------------------------------------
-  const engine = useMemo(
-    () =>
-      new RhythmEngine({
+  // One engine per widget for its whole life. A ref (not useMemo) so a dev hot
+  // reload can't create a second engine while the first keeps playing.
+  const engineRef = useRef<RhythmEngine | null>(null);
+  if (!engineRef.current)
+    engineRef.current = new RhythmEngine({
         onSchedule: (e) => queue.current.push(e),
         onResult: (r, stats) => {
           results.current.set(`${r.bar}:${r.noteIndex}`, r.grade);
@@ -91,9 +93,25 @@ export default function Widget() {
           // Extra tap with no note nearby: mark the beat box it happened in.
           if (beatRef.current !== null) setStray({ id: flashId.current, beat: beatRef.current });
         },
-      }),
-    [],
+      });
+  const engine = engineRef.current;
+  useEffect(
+    () => () => {
+      // Unmount (or hot reload): never leave audio running without a UI.
+      engine.stop();
+      runningRef.current = false;
+    },
+    [engine],
   );
+
+  // Start/stop/restart run strictly one after another (rapid clicks or setting
+  // changes during playback must not interleave).
+  const opChain = useRef<Promise<unknown>>(Promise.resolve());
+  const serial = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const next = opChain.current.then(fn, fn);
+    opChain.current = next.catch(() => {});
+    return next;
+  }, []);
 
   const hotkeyErrorsRef = useRef<string[]>([]);
   const broadcastState = useCallback(
@@ -113,7 +131,7 @@ export default function Widget() {
     native.setWatchedKeys(keys).catch(() => {});
   }, []);
 
-  const stop = useCallback(async () => {
+  const stopNow = useCallback(async () => {
     if (!runningRef.current) return;
     const summary = engine.stop();
     runningRef.current = false;
@@ -131,7 +149,7 @@ export default function Widget() {
     }
   }, [engine, watchKeys, broadcastState]);
 
-  const start = useCallback(async () => {
+  const startNow = useCallback(async () => {
     const s = settingsRef.current;
     if (!s || runningRef.current) return;
     results.current.clear();
@@ -149,7 +167,9 @@ export default function Widget() {
     broadcastState({ running: true });
   }, [engine, watchKeys, broadcastState]);
 
-  const toggle = useCallback(() => (runningRef.current ? stop() : start()), [start, stop]);
+  const start = useCallback(() => serial(startNow), [serial, startNow]);
+  const stop = useCallback(() => serial(stopNow), [serial, stopNow]);
+  const toggle = useCallback(() => serial(() => (runningRef.current ? stopNow() : startNow())), [serial, startNow, stopNow]);
 
   // ---- settings -----------------------------------------------------------
   const applySettings = useCallback(
@@ -170,10 +190,11 @@ export default function Widget() {
         const onlyVolume =
           JSON.stringify({ ...toEngineConfig(prev), volume: 0 }) === JSON.stringify({ ...toEngineConfig(s), volume: 0 });
         if (onlyVolume) engine.setVolume(s.volume);
-        else {
-          await stop();
-          await start();
-        }
+        else
+          await serial(async () => {
+            await stopNow();
+            await startNow();
+          });
       } else if (runningRef.current) watchKeys(true);
     },
     [engine, start, stop, watchKeys],

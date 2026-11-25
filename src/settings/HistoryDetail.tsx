@@ -102,7 +102,12 @@ export default function HistoryDetail({ s, onBack }: { s: SessionSummary; onBack
 
       <section>
         <h3>{t("detail.chartTitle")}</h3>
-        <OffsetChart strict={d.strictAlternate} trace={d.trace} movingAvg={a.movingAvg} windows={d.windows} labels={labels} />
+        <OffsetChart
+          strict={d.strictAlternate}
+          bpm={s.bpm}
+          beats={s.beats}
+          cells={d.cells}
+          trace={d.trace} movingAvg={a.movingAvg} windows={d.windows} labels={labels} />
         {d.truncated && <p className="note">{t("detail.truncated")}</p>}
       </section>
 

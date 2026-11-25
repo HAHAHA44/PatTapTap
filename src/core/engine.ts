@@ -52,6 +52,7 @@ export class RhythmEngine {
   private clockOffset = 0; // perf ms = audio s * 1000 + clockOffset
   private clockReady = false;
   private startedAt = 0;
+  private startToken = 0;
   private stats: LiveStats = emptyStats();
   private trace: TraceHit[] = [];
   private t0Perf = 0; // perf ms of bar 0 (after count-in)
@@ -62,6 +63,8 @@ export class RhythmEngine {
   /** Must be awaited; may need a user gesture on some platforms. */
   async start(cfg: EngineConfig): Promise<boolean> {
     if (this.running) this.stop();
+    // A newer start() (or a stop()) supersedes this one while we await the audio device.
+    const token = ++this.startToken;
     this.cfg = cfg;
     if (!this.ctx) {
       this.ctx = new AudioContext({ latencyHint: "interactive" });
@@ -72,6 +75,7 @@ export class RhythmEngine {
     } catch {
       /* ignore */
     }
+    if (token !== this.startToken) return false;
     if (this.ctx.state !== "running") return false;
     this.synth!.setVolume(cfg.volume);
     this.clockReady = false;
@@ -95,6 +99,7 @@ export class RhythmEngine {
 
   /** Stops playback. Returns a summary if anything was judged. */
   stop(): SessionSummary | null {
+    this.startToken++; // cancel any start() still awaiting the audio device
     if (!this.running) return null;
     this.running = false;
     this.ticker.stop();

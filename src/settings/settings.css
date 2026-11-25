@@ -399,3 +399,9 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .chart svg.grab { cursor: grab; }
 .w-settings .chart svg.grabbing { cursor: grabbing; }
 .w-settings .chart svg { user-select: none; -webkit-user-select: none; }
+
+.w-settings .bar-line { stroke: var(--axis); stroke-width: 1; }
+.w-settings .beat-line { stroke: var(--grid); stroke-width: 1; stroke-dasharray: 2 3; }
+.w-settings .expect { stroke: var(--fg); stroke-width: 1.5; opacity: 0.55; }
+.w-settings .stem { stroke: var(--series); stroke-width: 1; opacity: 0.5; }
+.w-settings .lg-expect { width: 2px; height: 10px; background: var(--fg); opacity: 0.55; }
