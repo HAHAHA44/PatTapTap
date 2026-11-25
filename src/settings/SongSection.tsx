@@ -4,6 +4,7 @@ import { Settings } from "../core/settings";
 import { buildChart, chartNoteCount, SONG_LEVELS, SongMeta } from "../core/songChart";
 import { t } from "../i18n";
 import { ImportStage, importSong, songs } from "../platform/songs";
+import { PatternPreview } from "./PatternEditor";
 
 const fmtDur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
 
@@ -22,6 +23,7 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
   }, []);
 
   const selected = list?.find((m) => m.id === s.songId) ?? null;
+  const chart = useMemo(() => (selected ? buildChart(selected, s.songLevel) : []), [selected, s.songLevel]);
   const counts = useMemo(
     () => (selected ? Object.fromEntries(SONG_LEVELS.map((l) => [l, chartNoteCount(buildChart(selected, l))])) : null),
     [selected],
@@ -128,6 +130,21 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
           <span>{t("song.clicks")}</span>
         </label>
       </section>
+      {chart.length > 0 && (
+        <section>
+          <h3>
+            {t("song.overview")} <span className="note">{t(`level.${s.songLevel}`)} · {t("song.notes", { n: counts?.[s.songLevel] ?? 0 })}</span>
+          </h3>
+          <div className="overview">
+            {chart.map((bar, i) => (
+              <div key={i} className="ov-bar" title={t("song.barN", { n: i + 1, time: fmtDur(bar.start) })}>
+                <span className="ov-num">{i + 1}</span>
+                <PatternPreview cells={bar.cells} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }

@@ -240,9 +240,54 @@ function refine(e: Float64Array, i: number): number {
   return den !== 0 ? i + Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / den)) : i;
 }
 
+/** Least-squares slope of beat time vs. index = mean beat interval (s). */
+function beatSlope(beats: number[]): number {
+  const n = beats.length;
+  if (n < 2) return 0.5;
+  const mx = (n - 1) / 2;
+  const my = beats.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  beats.forEach((y, x) => {
+    num += (x - mx) * (y - my);
+    den += (x - mx) ** 2;
+  });
+  return num / den;
+}
+
+/**
+ * Beats sit on whole analysis frames (~11.6 ms). Replace each with a local linear
+ * fit over its neighbours: removes that rounding but still follows tempo drift.
+ */
+function smoothBeats(beats: number[], radius = 4) {
+  const src = beats.slice();
+  for (let i = 0; i < src.length; i++) {
+    const a = Math.max(0, i - radius), b = Math.min(src.length - 1, i + radius);
+    if (b - a < 2) continue;
+    const xs: number[] = [], ys: number[] = [];
+    for (let k = a; k <= b; k++) {
+      xs.push(k);
+      ys.push(src[k]);
+    }
+    const mx = xs.reduce((p, q) => p + q, 0) / xs.length, my = ys.reduce((p, q) => p + q, 0) / ys.length;
+    let num = 0, den = 0;
+    xs.forEach((x, j) => {
+      num += (x - mx) * (ys[j] - my);
+      den += (x - mx) ** 2;
+    });
+    beats[i] = my + (num / den) * (i - mx);
+  }
+}
+
 // ---------------------------------------------------------------- main entry
 /** Analyse mono samples. Takes ~0.5-2 s for a 4-minute song at 22.05 kHz. */
-export function analyzeSong(x: Float32Array, sr: number, progress?: (p: number) => void): SongAnalysis {
+export interface AnalyzeOptions {
+  /** DP penalty for tempo changes; higher = steadier beats. */
+  tightness?: number;
+  /** Snap each beat to the strongest onset within ± this many ms (0 = off). */
+  snapMs?: number;
+}
+
+export function analyzeSong(x: Float32Array, sr: number, progress?: (p: number) => void, opts: AnalyzeOptions = {}): SongAnalysis {
   const env = onsetEnvelopes(x, sr, progress);
   const toSec = (f: number) => env.t0 + f * env.dt;
   const radius = Math.round(0.25 / env.dt);
@@ -250,20 +295,23 @@ export function analyzeSong(x: Float32Array, sr: number, progress?: (p: number) 
   progress?.(0.75);
 
   const period = estimatePeriod(o, env.dt);
-  const beatFrames = trackBeats(o, period);
+  // High tightness: most recorded music keeps a steady tempo, and a loose tracker
+  // wobbles toward whichever instrument is loudest (measured on real songs).
+  const beatFrames = trackBeats(o, period, opts.tightness ?? 4000);
   progress?.(0.9);
 
   // snap each beat to the strongest onset within ±40 ms, sub-frame refined
-  const snap = Math.round(0.04 / env.dt);
+  // Snapping beats to nearby onsets made real recordings jittery (played drums sit
+  // a little ahead/behind the grid), so it's off by default.
+  const snap = Math.round((opts.snapMs ?? 0) / 1000 / env.dt);
   const beats = beatFrames.map((f) => {
     let best = f;
     for (let j = Math.max(0, f - snap); j <= Math.min(o.length - 1, f + snap); j++) if (o[j] > o[best]) best = j;
     return toSec(o[best] > 1.5 * o[f] ? refine(o, best) : f);
   });
 
-  const diffs = beats.slice(1).map((b, i) => b - beats[i]).sort((a, b) => a - b);
-  const medIv = diffs.length ? diffs[diffs.length >> 1] : 60 / 120;
-  const bpm = Math.round((60 / medIv) * 10) / 10;
+  smoothBeats(beats);
+  const bpm = Math.round((60 / beatSlope(beats)) * 10) / 10;
 
   // confidence: mean onset strength on beats vs everywhere
   let onBeat = 0;

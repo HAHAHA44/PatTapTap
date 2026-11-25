@@ -71,7 +71,8 @@ export async function importSong(file: File, onStage: (s: ImportStage) => void):
   const meta: SongMeta = {
     ...analysis,
     id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    name: dot > 0 ? file.name.slice(0, dot) : file.name,
+    // drop leading "[site][source]" style tags that download tools add
+    name: (dot > 0 ? file.name.slice(0, dot) : file.name).replace(/^(\s*[\[【][^\]】]*[\]】])+\s*/, "") || file.name,
     ext: dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "",
     importedAt: Date.now(),
   };

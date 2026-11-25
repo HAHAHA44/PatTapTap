@@ -413,3 +413,7 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .seg-note { font-weight: 400; opacity: 0.7; font-size: 12px; }
 .w-settings .filebtn.disabled { opacity: 0.45; pointer-events: none; }
 .w-settings .pact button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+.w-settings .overview { display: flex; flex-wrap: wrap; gap: 6px 10px; max-height: 340px; overflow: auto; }
+.w-settings .ov-bar { display: flex; flex-direction: column; gap: 2px; }
+.w-settings .ov-num { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }

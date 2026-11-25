@@ -34,7 +34,7 @@ export interface SongPlayback {
   buffer: AudioBuffer;
   bars: ChartBar[];
   volume: number;
-  /** Overlay metronome clicks on the detected beats. */
+  /** Overlay click sounds on the chart's notes (lets you hear just the rhythm). */
   clicks: boolean;
 }
 
@@ -408,7 +408,8 @@ export class RhythmEngine {
 
       const beatKind = slot.beat === 0 && cfg.accent ? "accent" : "beat";
       if (song) {
-        if (song.clicks && slot.isBeatStart) this.synth!.click(time, beatKind);
+        // overlay the chart itself (beats or drum notes), bar starts accented
+        if (song.clicks && slot.isNote) this.synth!.click(time, slot.isBeatStart ? beatKind : "note");
       } else if (cfg.cue !== "visual") {
         if (countIn) {
           if (slot.isBeatStart) this.synth!.click(time, beatKind);
