@@ -422,3 +422,15 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .section-row { display: grid; grid-template-columns: 64px 180px 1fr; align-items: center; gap: 8px; }
 .w-settings .sec-name { font-weight: 600; font-size: 13px; }
 .w-settings .section-row .pp-beat i { width: 7px; height: 7px; }
+
+.w-settings .playlist { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.w-settings .pl-row { display: grid; grid-template-columns: 24px 1fr auto auto; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+.w-settings .pl-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.w-settings .pl-mark { color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; font-size: 12px; }
+.w-settings .pl-row.on .pl-mark { color: var(--accent); }
+.w-settings .pl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-settings .pl-act { display: flex; gap: 4px; }
+.w-settings .pl-act button { padding: 1px 7px; font-size: 12px; }
+.w-settings .song-head { display: flex; align-items: center; gap: 8px; }
+.w-settings .song-head .song-main { flex: 1; min-width: 0; }
+.w-settings .add-btn { flex: none; padding: 3px 10px; font-size: 12px; }

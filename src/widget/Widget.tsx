@@ -5,7 +5,7 @@ import { Menu } from "@tauri-apps/api/menu";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { RhythmEngine } from "../core/engine";
 import { expandBar } from "../core/pattern";
-import { beatsPerBar, currentPattern, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
+import { beatsPerBar, currentPattern, currentSongId, nextPlayIndex, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
 import { buildChart } from "../core/songChart";
 import { songs } from "../platform/songs";
 import { BarSlot } from "../core/types";
@@ -92,7 +92,8 @@ export default function Widget() {
           setFlash({ id: ++flashId.current, grade: r.grade });
         },
         // Song finished: stop like the user pressed stop (saves the session).
-        onEnd: () => void stopRef.current(),
+        // Song finished: save it, then go on to the next playlist entry.
+        onEnd: () => void endRef.current(),
         onStray: (stats) => {
           setCombo(stats.combo);
           setFlash({ id: ++flashId.current, grade: "miss" });
@@ -164,9 +165,10 @@ export default function Widget() {
     let song = null;
     if (s.mode === "song") {
       // Load and decode the song each time (decoded audio is large; don't keep it idle).
-      if (!s.songId) return setHint(t("widget.noSong"));
+      const songId = currentSongId(s);
+      if (!songId) return setHint(t("widget.noSong"));
       try {
-        const [meta, bytes] = await Promise.all([songs.read(s.songId), songs.loadAudio(s.songId)]);
+        const [meta, bytes] = await Promise.all([songs.read(songId), songs.loadAudio(songId)]);
         const bars = buildChart(meta, s.songLevel);
         if (!bars.length) return setHint(t("widget.noSong"));
         song = { id: meta.id, name: meta.name, bpm: meta.bpm, buffer: await engine.decode(bytes), bars, volume: s.songVolume, clicks: s.songClicks };
@@ -189,6 +191,19 @@ export default function Widget() {
   const start = useCallback(() => serial(startNow), [serial, startNow]);
   const stop = useCallback(() => serial(stopNow), [serial, stopNow]);
   const toggle = useCallback(() => serial(() => (runningRef.current ? stopNow() : startNow())), [serial, startNow, stopNow]);
+  /** End of a song: save the session, move along the playlist (per play mode), keep going. */
+  const onSongEnd = useCallback(
+    () =>
+      serial(async () => {
+        if (!runningRef.current) return;
+        await stopNow();
+        const s = settingsRef.current;
+        if (!s || s.mode !== "song" || !s.playlist.length) return;
+        await applyRef.current({ ...s, playIndex: nextPlayIndex(s) }, true);
+        await startNow();
+      }),
+    [serial, startNow, stopNow],
+  );
 
   // ---- settings -----------------------------------------------------------
   const applySettings = useCallback(
@@ -315,6 +330,8 @@ export default function Widget() {
   const toggleRef = useRef(toggle);
   const stopRef = useRef(stop);
   const applyRef = useRef(applySettings);
+  const endRef = useRef(onSongEnd);
+  endRef.current = onSongEnd;
   toggleRef.current = toggle;
   stopRef.current = stop;
   applyRef.current = applySettings;

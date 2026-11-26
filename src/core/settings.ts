@@ -27,7 +27,11 @@ export interface Settings {
   hotkeys: { toggle: string; boss: string };
   language: "auto" | "zh" | "en";
   mode: "metronome" | "song";
-  songId: string | null;
+  /** Practice queue of song ids (the same song may appear more than once). */
+  playlist: string[];
+  /** Index into `playlist` of the song being practiced. */
+  playIndex: number;
+  playMode: PlayMode;
   songLevel: SongLevel;
   songClicks: boolean;
   songVolume: number;
@@ -62,7 +66,9 @@ export const DEFAULT_SETTINGS: Settings = {
   hotkeys: { toggle: "Alt+Shift+B", boss: "Alt+Shift+H" },
   language: "auto",
   mode: "metronome",
-  songId: null,
+  playlist: [],
+  playIndex: 0,
+  playMode: "loop",
   songLevel: "beats",
   songClicks: false,
   songVolume: 0.8,
@@ -105,7 +111,14 @@ export function normalizeSettings(raw: unknown): Settings {
     },
     language: pick(r.language, (v) => v === "auto" || v === "zh" || v === "en", d.language),
     mode: pick(r.mode, (v) => v === "metronome" || v === "song", d.mode),
-    songId: typeof r.songId === "string" ? r.songId : null,
+    // older versions stored a single selected song instead of a playlist
+    playlist: Array.isArray(r.playlist)
+      ? r.playlist.filter((x): x is string => typeof x === "string")
+      : typeof (r as { songId?: unknown }).songId === "string"
+        ? [(r as { songId: string }).songId]
+        : [],
+    playIndex: Math.max(0, Math.round(clamp(r.playIndex, 0, 1e6, 0))),
+    playMode: pick(r.playMode, (v) => v === "loop" || v === "one" || v === "shuffle", d.playMode),
     songLevel: pick(r.songLevel, (v) => SONG_LEVELS.includes(v), d.songLevel),
     songClicks: pick(r.songClicks, (v) => typeof v === "boolean", d.songClicks),
     songVolume: clamp(r.songVolume, 0, 1, d.songVolume),
@@ -119,6 +132,25 @@ export function allPatterns(s: Settings): Pattern[] {
 
 export function currentPattern(s: Settings): Pattern {
   return allPatterns(s).find((p) => p.id === s.patternId) ?? PRESETS[0];
+}
+
+export type PlayMode = "loop" | "one" | "shuffle";
+export const PLAY_MODES: PlayMode[] = ["loop", "one", "shuffle"];
+
+/** Song currently up in the playlist, if any. */
+export function currentSongId(s: Settings): string | null {
+  return s.playlist[Math.min(s.playIndex, s.playlist.length - 1)] ?? null;
+}
+
+/** Playlist index to play after the current song ends. */
+export function nextPlayIndex(s: Settings, rand: () => number = Math.random): number {
+  const n = s.playlist.length;
+  if (n <= 1) return 0;
+  const i = Math.min(s.playIndex, n - 1);
+  if (s.playMode === "one") return i;
+  if (s.playMode === "loop") return (i + 1) % n;
+  const j = Math.floor(rand() * (n - 1)); // shuffle: any other entry
+  return j >= i ? j + 1 : j;
 }
 
 /** Beats shown per bar: song charts are always 4/4. */
@@ -145,7 +177,7 @@ export function toEngineConfig(s: Settings): EngineConfig {
     windows: { ...JUDGE_WINDOWS },
     calibrationMs: s.calibrationMs,
     mode: s.mode,
-    songId: s.songId,
+    songId: currentSongId(s),
     songLevel: s.songLevel,
     songClicks: s.songClicks,
     songVolume: s.songVolume,
