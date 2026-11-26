@@ -45,8 +45,25 @@ function upperBound(xs: number[], v: number): number {
  * - beats: every beat
  * - drums: kick + snare-band onsets, snapped to the 16th grid
  * - all:   kick + snare + hi-hat-band onsets
+ *
+ * Drum levels use one rhythm per section. The section boundaries come from the
+ * "all" view (most information) and are shared by both drum levels, so "drums"
+ * never has more sections than "all"; adjacent sections whose kick+snare rhythm is
+ * the same simply read as one longer section.
  */
 export function buildChart(a: SongAnalysis, level: SongLevel): ChartBar[] {
+  const bars = rawBars(a, level);
+  if (level === "beats" || !bars.length) return bars;
+  const structure = findSections(level === "all" ? bars : rawBars(a, "all"));
+  for (const sec of structure) {
+    const cells = level === "all" ? sec.cells : withFallback(majority(bars, sec.firstBar, sec.lastBar));
+    for (let i = sec.firstBar; i <= sec.lastBar; i++) bars[i].cells = cells.map((c) => c.slice());
+  }
+  return bars;
+}
+
+/** Bars with every detected note (before sectioning). */
+function rawBars(a: SongAnalysis, level: SongLevel): ChartBar[] {
   const b = a.beats;
   const first = a.downbeat;
   const nBars = Math.floor((b.length - first) / BEATS_PER_BAR);
@@ -84,7 +101,7 @@ export function buildChart(a: SongAnalysis, level: SongLevel): ChartBar[] {
     const bar = bars[Math.floor(rel / BEATS_PER_BAR)];
     if (bar) bar.cells[rel % BEATS_PER_BAR][j] = true;
   }
-  return applySections(bars);
+  return bars;
 }
 
 /** A run of bars that all use one rhythm. Bar indices are inclusive. */
@@ -193,17 +210,12 @@ export function findSections(bars: ChartBar[]): ChartSection[] {
       return acc;
     }, []);
   }
-  return secs.map((sec) => ({
-    ...sec,
-    cells: noteCount(sec.cells) < MIN_SECTION_NOTES ? sec.cells.map((c) => c.map((_, j) => j === 0)) : sec.cells.map((c) => c.slice()),
-  }));
+  return secs.map((sec) => ({ ...sec, cells: withFallback(sec.cells) }));
 }
 
-function applySections(bars: ChartBar[]): ChartBar[] {
-  for (const sec of findSections(bars)) {
-    for (let i = sec.firstBar; i <= sec.lastBar; i++) bars[i].cells = sec.cells.map((c) => c.slice());
-  }
-  return bars;
+/** A rhythm with almost no notes (e.g. a drumless intro) becomes one hit per beat. */
+function withFallback(cells: boolean[][]): boolean[][] {
+  return noteCount(cells) < MIN_SECTION_NOTES ? cells.map((c) => c.map((_, j) => j === 0)) : cells.map((c) => c.slice());
 }
 
 /** Sections of a finished chart (consecutive bars with identical rhythm). */
