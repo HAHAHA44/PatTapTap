@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { rescaleTempo, shiftDownbeat } from "../core/beatTrack";
+import { rescaleTempo } from "../core/beatTrack";
 import { Settings } from "../core/settings";
 import { buildChart, chartNoteCount, chartSections, SONG_LEVELS, SongMeta } from "../core/songChart";
 import { t } from "../i18n";
@@ -116,7 +116,6 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
                   </button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 2) }))}>{t("song.double")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 0.5) }))}>{t("song.half")}</button>
-                  <button onClick={() => edit(m, (x) => ({ ...x, ...shiftDownbeat(x) }))}>{t("song.shift")}</button>
                   {m.auto && (m.auto.downbeat !== m.downbeat || m.auto.beats.length !== m.beats.length) && (
                     <button onClick={() => edit(m, (x) => ({ ...x, ...x.auto! }))}>{t("song.restore")}</button>
                   )}

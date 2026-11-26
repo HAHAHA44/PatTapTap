@@ -37,7 +37,6 @@ const en: Record<MessageKey, string> = {
   "song.conf.low": "Low confidence; beats may be off",
   "song.double": "Tempo ×2",
   "song.half": "Tempo ÷2",
-  "song.shift": "Shift bar start",
   "song.reanalyze": "Re-analyze",
   "song.needsReanalyze": "Old analysis, please re-analyze",
   "song.section": "Section {n}",

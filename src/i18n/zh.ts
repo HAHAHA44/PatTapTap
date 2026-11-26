@@ -35,7 +35,6 @@ const zh = {
   "song.conf.low": "识别可信度低，拍子可能不准",
   "song.double": "速度 ×2",
   "song.half": "速度 ÷2",
-  "song.shift": "小节起点后移",
   "song.reanalyze": "重新分析",
   "song.needsReanalyze": "旧版分析，请点「重新分析」",
   "song.section": "段落 {n}",

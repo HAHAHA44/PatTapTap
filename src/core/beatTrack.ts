@@ -280,11 +280,6 @@ export function rescaleTempo(a: SongAnalysis, factor: 0.5 | 2): SongAnalysis {
   return { ...a, beats, bpm: Math.round(a.bpm * factor * 10) / 10, downbeat: anchorNew };
 }
 
-/** Move the bar start one beat later (manual fix when the downbeat guess is off). */
-export function shiftDownbeat(a: SongAnalysis): SongAnalysis {
-  return { ...a, downbeat: (a.downbeat + 1) % 4 };
-}
-
 /** Average stereo/multi-channel to mono and decimate by an integer factor. */
 export function toMono(channels: Float32Array[], factor = 1): Float32Array {
   const n = Math.floor(channels[0].length / factor);
