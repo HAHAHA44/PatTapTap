@@ -417,3 +417,8 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .overview { display: flex; flex-wrap: wrap; gap: 6px 10px; max-height: 340px; overflow: auto; }
 .w-settings .ov-bar { display: flex; flex-direction: column; gap: 2px; }
 .w-settings .ov-num { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.w-settings .sections { display: flex; flex-direction: column; gap: 6px; }
+.w-settings .section-row { display: grid; grid-template-columns: 64px 180px 1fr; align-items: center; gap: 8px; }
+.w-settings .sec-name { font-weight: 600; font-size: 13px; }
+.w-settings .section-row .pp-beat i { width: 7px; height: 7px; }

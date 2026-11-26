@@ -1,6 +1,7 @@
 // Song library: files live in the app data folder (see src-tauri/src/songs.rs).
 import { invoke } from "@tauri-apps/api/core";
 import { SongAnalysis, toMono } from "../core/beatTrack";
+import { BT_SR as ANALYSIS_SR } from "../core/beatThis";
 import { SongMeta } from "../core/songChart";
 
 export const songs = {
@@ -37,6 +38,7 @@ function analyzeInWorker(samples: Float32Array, sr: number, onProgress: (p: numb
     const w = new Worker(new URL("./analyzeWorker.ts", import.meta.url), { type: "module" });
     w.onmessage = (e) => {
       if (e.data.progress !== undefined) onProgress(e.data.progress);
+      else if (e.data.warning) console.warn(e.data.warning);
       else {
         w.terminate();
         if (e.data.result) resolve(e.data.result);
@@ -51,21 +53,32 @@ function analyzeInWorker(samples: Float32Array, sr: number, onProgress: (p: numb
   });
 }
 
-/** Decode, analyze and store an audio file. Throws "decode" if it isn't readable audio. */
-export async function importSong(file: File, onStage: (s: ImportStage) => void): Promise<SongMeta> {
+/** Decode audio bytes to mono at the analysis rate and analyze them in a worker. */
+async function analyzeBytes(bytes: ArrayBuffer, onStage: (s: ImportStage) => void): Promise<SongAnalysis> {
   onStage({ stage: "decoding" });
-  const bytes = await file.arrayBuffer();
   let audio: AudioBuffer;
   try {
-    // Decoding resamples to the context rate; analysis runs at half of it.
-    audio = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(bytes.slice(0));
+    // The decoder resamples to the context rate: 22.05 kHz is what the beat model expects.
+    audio = await new OfflineAudioContext(1, 1, ANALYSIS_SR).decodeAudioData(bytes.slice(0));
   } catch {
     throw new Error("decode");
   }
   const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
-  const factor = audio.sampleRate >= 44100 ? 2 : 1;
-  const mono = toMono(channels, factor);
-  const analysis = await analyzeInWorker(mono, audio.sampleRate / factor, (p) => onStage({ stage: "analyzing", progress: p }));
+  return analyzeInWorker(toMono(channels), audio.sampleRate, (p) => onStage({ stage: "analyzing", progress: p }));
+}
+
+/** Run the current analysis again on a stored song (keeps its id, name and date). */
+export async function reanalyzeSong(meta: SongMeta, onStage: (s: ImportStage) => void): Promise<SongMeta> {
+  const analysis = await analyzeBytes(await songs.loadAudio(meta.id), onStage);
+  const next: SongMeta = { ...analysis, id: meta.id, name: meta.name, ext: meta.ext, importedAt: meta.importedAt };
+  await songs.save(next);
+  return next;
+}
+
+/** Decode, analyze and store an audio file. Throws "decode" if it isn't readable audio. */
+export async function importSong(file: File, onStage: (s: ImportStage) => void): Promise<SongMeta> {
+  const bytes = await file.arrayBuffer();
+  const analysis = await analyzeBytes(bytes, onStage);
 
   const dot = file.name.lastIndexOf(".");
   const meta: SongMeta = {

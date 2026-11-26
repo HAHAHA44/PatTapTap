@@ -42,3 +42,8 @@ src-tauri/src/keys/  全局按键监听（macOS CGEventTap / Windows 低级键�
 
 - 二期：邮箱注册登录、好友、排行榜、每日挑战、好友比试、云同步
 - 后续：桌宠形态、手机版
+
+## 第三方组件
+
+- **Beat This!**（`public/models/beat_this_small.onnx`）：节拍与小节识别模型，small0 检查点导出为 ONNX。MIT 许可，© 2024 Institute of Computational Perception, JKU Linz。许可证见 `public/models/BEAT_THIS_LICENSE.txt`，项目地址 https://github.com/CPJKU/beat_this
+- **onnxruntime-web**：在分析线程里运行上述模型（WebAssembly），MIT 许可。

@@ -15,15 +15,17 @@ export interface SongAnalysis {
   onsets: { low: number[]; mid: number[]; high: number[] };
   /** Strength of each low-band onset (parallel to onsets.low), for bar-phase picking. */
   lowStrength: number[];
-  /** 0..1, how strongly onsets line up with the tracked beats. */
+  /** 0..1, how sure the beat tracker is. */
   confidence: number;
+  /** Which tracker produced `beats`: the Beat This model, or the built-in DSP fallback. */
+  beatSource?: "model" | "dsp";
 }
 
 const FRAME = 1024;
 const HOP = 256;
 
 // ---------------------------------------------------------------- FFT
-function makeFft(n: number) {
+export function makeFft(n: number) {
   const levels = Math.log2(n);
   const rev = new Uint32Array(n);
   for (let i = 0; i < n; i++) {
@@ -241,7 +243,7 @@ function refine(e: Float64Array, i: number): number {
 }
 
 /** Least-squares slope of beat time vs. index = mean beat interval (s). */
-function beatSlope(beats: number[]): number {
+export function beatSlope(beats: number[]): number {
   const n = beats.length;
   if (n < 2) return 0.5;
   const mx = (n - 1) / 2;
@@ -258,7 +260,7 @@ function beatSlope(beats: number[]): number {
  * Beats sit on whole analysis frames (~11.6 ms). Replace each with a local linear
  * fit over its neighbours: removes that rounding but still follows tempo drift.
  */
-function smoothBeats(beats: number[], radius = 4) {
+export function smoothBeats(beats: number[], radius = 4) {
   const src = beats.slice();
   for (let i = 0; i < src.length; i++) {
     const a = Math.max(0, i - radius), b = Math.min(src.length - 1, i + radius);

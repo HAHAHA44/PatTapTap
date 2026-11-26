@@ -7,6 +7,10 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],
+  // the analysis worker imports onnxruntime-web, which needs ES module workers
+  worker: { format: "es" as const },
+  // keep onnxruntime-web out of dep pre-bundling so its .wasm URL import resolves
+  optimizeDeps: { exclude: ["onnxruntime-web"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

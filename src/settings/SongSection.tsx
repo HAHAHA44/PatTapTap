@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { rescaleTempo, shiftDownbeat } from "../core/beatTrack";
 import { Settings } from "../core/settings";
-import { buildChart, chartNoteCount, SONG_LEVELS, SongMeta } from "../core/songChart";
+import { buildChart, chartNoteCount, chartSections, SONG_LEVELS, SongMeta } from "../core/songChart";
 import { t } from "../i18n";
-import { ImportStage, importSong, songs } from "../platform/songs";
+import { ImportStage, importSong, reanalyzeSong, songs } from "../platform/songs";
 import { PatternPreview } from "./PatternEditor";
 
 const fmtDur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
@@ -50,6 +50,19 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
     if (s.songId === next.id) update({ songRev: s.songRev + 1 });
   };
 
+  const reanalyze = async (m: SongMeta) => {
+    setErr("");
+    try {
+      const next = await reanalyzeSong(m, setStage);
+      setList((l) => (l ?? []).map((x) => (x.id === next.id ? next : x)));
+      if (s.songId === next.id) update({ songRev: s.songRev + 1 });
+    } catch (e) {
+      setErr((e as Error).message === "decode" ? t("song.decodeError") : t("song.analyzeError"));
+    } finally {
+      setStage(null);
+    }
+  };
+
   const remove = async (m: SongMeta) => {
     await songs.remove(m.id);
     setList((l) => (l ?? []).filter((x) => x.id !== m.id));
@@ -88,12 +101,15 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
               <div className="song-main">
                 <div className="song-name">{m.name}</div>
                 <div className="note">
-                  {m.bpm} BPM · {fmtDur(m.durationSec)} ·{" "}
+                  {m.bpm} BPM · {fmtDur(m.durationSec)} · {m.beatSource === "model" ? t("song.srcModel") : t("song.srcDsp")} ·{" "}
                   <span className={m.confidence < 0.35 ? "warn-text" : ""}>{confidence(m.confidence)}</span>
                 </div>
               </div>
               {m.id === s.songId && (
                 <div className="pact" onClick={(e) => e.stopPropagation()}>
+                  <button disabled={!!stage} onClick={() => reanalyze(m)}>
+                    {t("song.reanalyze")}
+                  </button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 2) }))}>{t("song.double")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 0.5) }))}>{t("song.half")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...shiftDownbeat(x) }))}>{t("song.shift")}</button>
@@ -135,11 +151,14 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
           <h3>
             {t("song.overview")} <span className="note">{t(`level.${s.songLevel}`)} · {t("song.notes", { n: counts?.[s.songLevel] ?? 0 })}</span>
           </h3>
-          <div className="overview">
-            {chart.map((bar, i) => (
-              <div key={i} className="ov-bar" title={t("song.barN", { n: i + 1, time: fmtDur(bar.start) })}>
-                <span className="ov-num">{i + 1}</span>
-                <PatternPreview cells={bar.cells} />
+          <div className="sections">
+            {chartSections(chart).map((sec, i) => (
+              <div key={i} className="section-row">
+                <span className="sec-name">{t("song.section", { n: i + 1 })}</span>
+                <span className="note sec-range">
+                  {t("song.sectionBars", { a: sec.firstBar + 1, b: sec.lastBar + 1 })} · {fmtDur(chart[sec.firstBar].start)}
+                </span>
+                <PatternPreview cells={sec.cells} />
               </div>
             ))}
           </div>
