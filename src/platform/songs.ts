@@ -53,6 +53,8 @@ function analyzeInWorker(samples: Float32Array, sr: number, onProgress: (p: numb
   });
 }
 
+const autoOf = (a: SongAnalysis) => ({ beats: a.beats, downbeat: a.downbeat, bpm: a.bpm });
+
 /** Decode audio bytes to mono at the analysis rate and analyze them in a worker. */
 async function analyzeBytes(bytes: ArrayBuffer, onStage: (s: ImportStage) => void): Promise<SongAnalysis> {
   onStage({ stage: "decoding" });
@@ -70,7 +72,7 @@ async function analyzeBytes(bytes: ArrayBuffer, onStage: (s: ImportStage) => voi
 /** Run the current analysis again on a stored song (keeps its id, name and date). */
 export async function reanalyzeSong(meta: SongMeta, onStage: (s: ImportStage) => void): Promise<SongMeta> {
   const analysis = await analyzeBytes(await songs.loadAudio(meta.id), onStage);
-  const next: SongMeta = { ...analysis, id: meta.id, name: meta.name, ext: meta.ext, importedAt: meta.importedAt };
+  const next: SongMeta = { ...analysis, id: meta.id, name: meta.name, ext: meta.ext, importedAt: meta.importedAt, auto: autoOf(analysis) };
   await songs.save(next);
   return next;
 }
@@ -88,6 +90,7 @@ export async function importSong(file: File, onStage: (s: ImportStage) => void):
     name: (dot > 0 ? file.name.slice(0, dot) : file.name).replace(/^(\s*[\[【][^\]】]*[\]】])+\s*/, "") || file.name,
     ext: dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "",
     importedAt: Date.now(),
+    auto: autoOf(analysis),
   };
   await invoke("song_save_audio", new Uint8Array(bytes), { headers: { "x-song-id": meta.id } });
   await songs.save(meta);

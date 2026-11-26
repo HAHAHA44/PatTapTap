@@ -1,24 +1,22 @@
-// Audio analysis for "practice with a song": onset detection, tempo estimation,
-// beat tracking (dynamic programming after Ellis 2007), downbeat guess and
-// per-band drum-ish onsets. Pure TS, no platform deps, no GPL code.
+// Audio analysis helpers for "practice with a song": per-band drum-ish onset
+// detection plus beat-list utilities. Beats and bar starts come from the Beat This
+// model (beatThis.ts). Pure TS, no platform deps.
 
 export interface SongAnalysis {
-  version: 1;
+  version: 2;
   durationSec: number;
   /** Median tempo from the tracked beats. */
   bpm: number;
   /** Beat times in seconds from the start of the audio. */
   beats: number[];
-  /** Index into `beats` of the first downbeat (bar start), assuming 4/4. */
+  /** Index into `beats` of the first bar start (4/4); beats before it are a pickup. */
   downbeat: number;
   /** Onset times (s) per band: low ≈ kick, mid ≈ snare/body, high ≈ hats/cymbals. */
   onsets: { low: number[]; mid: number[]; high: number[] };
-  /** Strength of each low-band onset (parallel to onsets.low), for bar-phase picking. */
-  lowStrength: number[];
-  /** 0..1, how sure the beat tracker is. */
+  /** 0..1, the model's mean beat probability at the detected beats. */
   confidence: number;
-  /** Which tracker produced `beats`: the Beat This model, or the built-in DSP fallback. */
-  beatSource?: "model" | "dsp";
+  /** "model" for every current analysis; older stored songs lack it (re-analyze them). */
+  beatSource?: "model";
 }
 
 const FRAME = 1024;
@@ -149,69 +147,6 @@ function detrend(e: Float64Array, radius: number): Float64Array {
   return out;
 }
 
-// ---------------------------------------------------------------- tempo
-/** Period in frames (fractional) of the dominant pulse, biased towards ~120 BPM. */
-function estimatePeriod(o: Float64Array, dt: number): number {
-  const minLag = Math.floor(60 / 220 / dt);
-  const maxLag = Math.ceil(60 / 50 / dt);
-  const n = o.length;
-  const ac = new Float64Array(maxLag + 2);
-  for (let lag = minLag - 1; lag <= maxLag + 1; lag++) {
-    let s = 0;
-    for (let i = lag; i < n; i++) s += o[i] * o[i - lag];
-    ac[lag] = s / (n - lag);
-  }
-  let best = minLag;
-  let bestScore = -Infinity;
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    const bpm = 60 / (lag * dt);
-    const w = Math.exp(-0.5 * (Math.log2(bpm / 120) / 0.9) ** 2);
-    const score = w * ac[lag];
-    if (score > bestScore) {
-      bestScore = score;
-      best = lag;
-    }
-  }
-  // parabolic refinement around the peak
-  const a = ac[best - 1], b = ac[best], c = ac[best + 1];
-  const den = a - 2 * b + c;
-  const shift = den !== 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / den)) : 0;
-  return best + shift;
-}
-
-// ---------------------------------------------------------------- beat tracking
-/** Ellis-style DP: beats where onsets are strong and spacing stays near `period`. */
-function trackBeats(o: Float64Array, period: number, tightness = 100): number[] {
-  const n = o.length;
-  if (!n) return [];
-  const score = new Float64Array(n);
-  const back = new Int32Array(n).fill(-1);
-  const lo = Math.round(period / 2);
-  const hi = Math.round(period * 2);
-  for (let i = 0; i < n; i++) {
-    let best = 0;
-    let arg = -1;
-    for (let j = i - hi; j <= i - lo; j++) {
-      if (j < 0) continue;
-      const penalty = tightness * Math.log((i - j) / period) ** 2;
-      const v = score[j] - penalty;
-      if (arg < 0 || v > best) {
-        best = v;
-        arg = j;
-      }
-    }
-    score[i] = o[i] + (arg >= 0 ? Math.max(0, best) : 0);
-    back[i] = arg >= 0 && best > 0 ? arg : -1;
-  }
-  // end on the best-scoring frame within the last period
-  let end = n - 1;
-  for (let i = Math.max(0, n - Math.ceil(period)); i < n; i++) if (score[i] > score[end]) end = i;
-  const beats: number[] = [];
-  for (let i = end; i >= 0; i = back[i]) beats.push(i);
-  beats.reverse();
-  return beats;
-}
-
 /** Peaks above an adaptive threshold, at least `minGap` frames apart. */
 function pickPeaks(e: Float64Array, minGap: number, k = 1.5): number[] {
   const n = e.length;
@@ -280,56 +215,24 @@ export function smoothBeats(beats: number[], radius = 4) {
   }
 }
 
-// ---------------------------------------------------------------- main entry
-/** Analyse mono samples. Takes ~0.5-2 s for a 4-minute song at 22.05 kHz. */
-export interface AnalyzeOptions {
-  /** DP penalty for tempo changes; higher = steadier beats. */
-  tightness?: number;
-  /** Snap each beat to the strongest onset within ± this many ms (0 = off). */
-  snapMs?: number;
+// ---------------------------------------------------------------- drum onsets
+/** What the signal-processing part contributes: drum-ish onsets per band. Beats and
+ *  bar starts come from the Beat This model (see beatThis.ts). */
+export interface OnsetInfo {
+  durationSec: number;
+  onsets: { low: number[]; mid: number[]; high: number[] };
 }
 
-export function analyzeSong(x: Float32Array, sr: number, progress?: (p: number) => void, opts: AnalyzeOptions = {}): SongAnalysis {
+/** Detect drum-ish onsets in mono samples (~0.3 s for a 4-minute song at 22.05 kHz). */
+export function detectOnsets(x: Float32Array, sr: number, progress?: (p: number) => void): OnsetInfo {
   const env = onsetEnvelopes(x, sr, progress);
   const toSec = (f: number) => env.t0 + f * env.dt;
   const radius = Math.round(0.25 / env.dt);
-  const o = detrend(env.full, radius);
-  progress?.(0.75);
-
-  const period = estimatePeriod(o, env.dt);
-  // High tightness: most recorded music keeps a steady tempo, and a loose tracker
-  // wobbles toward whichever instrument is loudest (measured on real songs).
-  const beatFrames = trackBeats(o, period, opts.tightness ?? 4000);
-  progress?.(0.9);
-
-  // snap each beat to the strongest onset within ±40 ms, sub-frame refined
-  // Snapping beats to nearby onsets made real recordings jittery (played drums sit
-  // a little ahead/behind the grid), so it's off by default.
-  const snap = Math.round((opts.snapMs ?? 0) / 1000 / env.dt);
-  const beats = beatFrames.map((f) => {
-    let best = f;
-    for (let j = Math.max(0, f - snap); j <= Math.min(o.length - 1, f + snap); j++) if (o[j] > o[best]) best = j;
-    return toSec(o[best] > 1.5 * o[f] ? refine(o, best) : f);
-  });
-
-  smoothBeats(beats);
-  const bpm = Math.round((60 / beatSlope(beats)) * 10) / 10;
-
-  // confidence: mean onset strength on beats vs everywhere
-  let onBeat = 0;
-  for (const f of beatFrames) onBeat += o[f];
-  onBeat /= Math.max(1, beatFrames.length);
-  let all = 0;
-  for (let i = 0; i < o.length; i++) all += o[i];
-  all /= Math.max(1, o.length);
-  const ratio = all > 0 ? onBeat / all : 0;
-  const confidence = Math.max(0, Math.min(1, (ratio - 1) / 3));
-
   const minGap = Math.round(0.06 / env.dt);
   const bandPeaks = (e: Float64Array) => {
     const d = detrend(e, radius);
     const peaks = pickPeaks(d, minGap);
-    return { times: peaks.map((f) => Math.round(toSec(refine(d, f)) * 1000) / 1000), strength: peaks.map((f) => Math.round(d[f] * 100) / 100) };
+    return { times: peaks.map((f) => Math.round(toSec(refine(d, f)) * 1000) / 1000), strength: peaks.map((f) => d[f]) };
   };
   /**
    * Keep only onsets at least `frac` as strong as the band's loud hits (90th pct).
@@ -337,81 +240,44 @@ export function analyzeSong(x: Float32Array, sr: number, progress?: (p: number) 
    * than kicks and snares, so this separates "drum" hits from bleed.
    */
   const strongOnly = (p: { times: number[]; strength: number[] }, frac: number) => {
-    const sorted = [...p.strength].sort((x, y) => x - y);
+    const sorted = [...p.strength].sort((q, r) => q - r);
     const ref = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
-    const keep = p.strength.map((v) => v >= frac * ref);
-    return { times: p.times.filter((_, i) => keep[i]), strength: p.strength.filter((_, i) => keep[i]) };
+    return p.times.filter((_, i) => p.strength[i] >= frac * ref);
   };
-  const lowP = strongOnly(bandPeaks(env.low), 0.3);
-  const onsets = { low: lowP.times, mid: strongOnly(bandPeaks(env.mid), 0.45).times, high: bandPeaks(env.high).times };
-  const roundedBeats = beats.map((b) => Math.round(b * 1000) / 1000);
+  const onsets = {
+    low: strongOnly(bandPeaks(env.low), 0.3),
+    mid: strongOnly(bandPeaks(env.mid), 0.45),
+    high: bandPeaks(env.high).times,
+  };
   progress?.(1);
-
-  return {
-    version: 1,
-    durationSec: x.length / sr,
-    bpm,
-    beats: roundedBeats,
-    downbeat: pickDownbeat(roundedBeats, onsets.low, lowP.strength),
-    onsets,
-    lowStrength: lowP.strength,
-    confidence: Math.round(confidence * 100) / 100,
-  };
-}
-
-/** Summed weight (default 1 each) of onsets within ±tol s of each beat (sorted inputs). */
-function onsetsNear(beats: number[], onsets: number[], weights?: number[], tol = 0.05): number[] {
-  const hits = new Array(beats.length).fill(0);
-  let j = 0;
-  beats.forEach((b, i) => {
-    while (j < onsets.length && onsets[j] < b - tol) j++;
-    for (let k = j; k < onsets.length && onsets[k] <= b + tol; k++) hits[i] += weights?.[k] ?? 1;
-  });
-  return hits;
-}
-
-/** Bar phase (assuming 4/4): the beat position mod 4 with the most kick energy. */
-export function pickDownbeat(beats: number[], lowOnsets: number[], strength?: number[]): number {
-  const near = onsetsNear(beats, lowOnsets, strength);
-  let best = 0;
-  let bestScore = -1;
-  for (let ph = 0; ph < 4; ph++) {
-    let sc = 0;
-    // weight bar-start beats double vs. beat 3, which often also has a kick
-    for (let i = ph; i < beats.length; i += 4) sc += near[i];
-    if (sc > bestScore) {
-      bestScore = sc;
-      best = ph;
-    }
-  }
-  return best;
+  return { durationSec: x.length / sr, onsets };
 }
 
 /**
- * Fix an octave error in tempo detection. `factor` 0.5 keeps every other beat (the
- * half with more kick/snare onsets on it); 2 inserts a beat between each pair.
+ * Fix an octave error in tempo detection, anchored on the bar start: the beat at
+ * index `downbeat` stays a bar start at the same time. `factor` 2 inserts a beat
+ * between each pair; 0.5 keeps every other beat counting from the anchor. So x2
+ * followed by /2 gives back exactly the original beats.
  */
 export function rescaleTempo(a: SongAnalysis, factor: 0.5 | 2): SongAnalysis {
+  const anchor = a.downbeat;
   let beats: number[];
+  let anchorNew: number;
   if (factor === 2) {
     beats = [];
     a.beats.forEach((b, i) => {
       beats.push(b);
       if (i + 1 < a.beats.length) beats.push(Math.round(((b + a.beats[i + 1]) / 2) * 1000) / 1000);
     });
+    anchorNew = anchor * 2;
   } else {
-    const strong = [...a.onsets.low, ...a.onsets.mid].sort((x, y) => x - y);
-    const near = onsetsNear(a.beats, strong);
-    const even = near.filter((_, i) => i % 2 === 0).reduce((s, v) => s + v, 0);
-    const odd = near.filter((_, i) => i % 2 === 1).reduce((s, v) => s + v, 0);
-    beats = a.beats.filter((_, i) => i % 2 === (even >= odd ? 0 : 1));
+    const parity = anchor % 2;
+    beats = a.beats.filter((_, i) => i % 2 === parity);
+    anchorNew = (anchor - parity) / 2;
   }
-  return {
-    ...a,
-    beats,
-    bpm: Math.round(a.bpm * factor * 10) / 10,
-    downbeat: pickDownbeat(beats, a.onsets.low, a.lowStrength),
-  };
+  // Keep the anchor's absolute index (not mod 4): after x2 a bar spans only half the
+  // old one, and the exact anchor is what lets /2 pick the right beats back.
+  return { ...a, beats, bpm: Math.round(a.bpm * factor * 10) / 10, downbeat: anchorNew };
 }
 
 /** Move the bar start one beat later (manual fix when the downbeat guess is off). */

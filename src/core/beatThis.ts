@@ -3,7 +3,7 @@
 // reference implementation exactly: the log-mel frontend, chunking and peak picking.
 // Running the network itself is injected (`RunModel`), so this stays platform-free.
 
-import { beatSlope, makeFft, smoothBeats, SongAnalysis } from "./beatTrack";
+import { beatSlope, makeFft, OnsetInfo, smoothBeats, SongAnalysis } from "./beatTrack";
 import melBands from "./model/melfb.json";
 
 export const BT_SR = 22050;
@@ -119,7 +119,15 @@ function peaks(logits: Float32Array): number[] {
     }
   }
   if (idx.length) out.push(p);
-  return out;
+  // sub-frame position from a parabola through the peak and its neighbours: the
+  // network's 20 ms frames otherwise round every beat by up to ±10 ms
+  return out.map((q) => {
+    const i = Math.round(q);
+    if (i !== q || i <= 0 || i >= logits.length - 1) return q;
+    const a = logits[i - 1], b = logits[i], c = logits[i + 1];
+    const den = a - 2 * b + c;
+    return den < 0 ? i + Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / den)) : i;
+  });
 }
 
 /** Beat and downbeat times (s); downbeats snapped onto the nearest beat. */
@@ -137,21 +145,25 @@ export function framesToBeats(pred: { beat: Float32Array; downbeat: Float32Array
 }
 
 /**
- * Replace the DSP tracker's beats with the model's. Keeps the DSP onsets (used for
- * drum charts). Beat times are smoothed to remove the model's 20 ms frame rounding.
+ * Combine the model's beats and bar starts with the detected drum onsets. Beat times
+ * are smoothed to remove the model's 20 ms frame rounding. Throws if the model found
+ * no usable beat grid (e.g. silence or non-music).
  */
-export function withModelBeats(dsp: SongAnalysis, m: { beats: number[]; downbeats: number[]; meanProb: number }): SongAnalysis {
-  if (m.beats.length < 8) return dsp;
+export function buildAnalysis(info: OnsetInfo, m: { beats: number[]; downbeats: number[]; meanProb: number }): SongAnalysis {
+  if (m.beats.length < 8) throw new Error("no beats found");
   const beats = m.beats.slice();
   smoothBeats(beats);
+  // first bar start: the beat nearest to the model's first downbeat
   const first = m.downbeats[0];
   let idx = 0;
   if (first !== undefined) for (let i = 1; i < beats.length; i++) if (Math.abs(beats[i] - first) < Math.abs(beats[idx] - first)) idx = i;
   return {
-    ...dsp,
+    version: 2,
+    durationSec: info.durationSec,
     beats: beats.map((b) => Math.round(b * 1000) / 1000),
     bpm: Math.round((60 / beatSlope(beats)) * 10) / 10,
-    downbeat: idx % 4,
+    downbeat: idx,
+    onsets: info.onsets,
     confidence: Math.round(m.meanProb * 100) / 100,
     beatSource: "model",
   };

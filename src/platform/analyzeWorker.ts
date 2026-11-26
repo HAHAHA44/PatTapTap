@@ -1,10 +1,10 @@
 // Runs song analysis off the UI thread:
-// 1. built-in DSP analysis (drum onsets per band; beats as a fallback)
-// 2. the Beat This model for beats and downbeats (onnxruntime-web, single-threaded WASM)
+// - beats and bar starts: the Beat This model (onnxruntime-web, single-threaded WASM)
+// - drum onsets per band: signal processing (only used for the drum chart levels)
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { analyzeSong } from "../core/beatTrack";
-import { BT_SR, framesToBeats, logMel, predictFrames, withModelBeats } from "../core/beatThis";
+import { detectOnsets } from "../core/beatTrack";
+import { BT_SR, buildAnalysis, framesToBeats, logMel, predictFrames } from "../core/beatThis";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
 ort.env.wasm.numThreads = 1; // no cross-origin isolation in the webview, so no threads
@@ -17,6 +17,7 @@ function model() {
       return r.arrayBuffer();
     })
     .then((buf) => ort.InferenceSession.create(buf, { executionProviders: ["wasm"] }));
+  session.catch(() => (session = null)); // allow a retry next time
   return session;
 }
 
@@ -25,29 +26,20 @@ const post = (m: unknown) => self.postMessage(m);
 self.onmessage = async (e: MessageEvent<{ samples: Float32Array; sr: number }>) => {
   const { samples, sr } = e.data;
   try {
-    // DSP part: 0 .. 25 %
-    const dsp = analyzeSong(samples, sr, (p) => post({ progress: p * 0.25 }));
-    let result = { ...dsp, beatSource: "dsp" as const };
-    if (sr === BT_SR) {
-      try {
-        const sess = await model();
-        const mel = logMel(samples);
-        post({ progress: 0.3 });
-        const pred = await predictFrames(
-          mel,
-          async (spect, frames) => {
-            const r = await sess.run({ spect: new ort.Tensor("float32", spect, [1, frames, 128]) });
-            return { beat: r.beat.data as Float32Array, downbeat: r.downbeat.data as Float32Array };
-          },
-          (p) => post({ progress: 0.3 + p * 0.7 }),
-        );
-        result = withModelBeats(dsp, framesToBeats(pred)) as typeof result;
-      } catch (err) {
-        // keep the DSP beats; the song is still usable
-        post({ warning: `model unavailable: ${String(err)}` });
-      }
-    }
-    post({ result });
+    if (sr !== BT_SR) throw new Error(`expected ${BT_SR} Hz audio, got ${sr}`);
+    const sess = await model();
+    const info = detectOnsets(samples, sr, (p) => post({ progress: p * 0.15 }));
+    const mel = logMel(samples);
+    post({ progress: 0.2 });
+    const pred = await predictFrames(
+      mel,
+      async (spect, frames) => {
+        const r = await sess.run({ spect: new ort.Tensor("float32", spect, [1, frames, 128]) });
+        return { beat: r.beat.data as Float32Array, downbeat: r.downbeat.data as Float32Array };
+      },
+      (p) => post({ progress: 0.2 + p * 0.8 }),
+    );
+    post({ result: buildAnalysis(info, framesToBeats(pred)) });
   } catch (err) {
     post({ error: String(err) });
   }

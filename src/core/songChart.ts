@@ -10,6 +10,8 @@ export interface SongMeta extends SongAnalysis {
   /** Original file extension, for decoding hints. */
   ext: string;
   importedAt: number;
+  /** The analysis result before any manual fixes (tempo x2 etc.), for "Restore". */
+  auto?: { beats: number[]; downbeat: number; bpm: number };
 }
 
 /** One bar of a song chart. Times are seconds from the start of the audio. */

@@ -101,8 +101,12 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
               <div className="song-main">
                 <div className="song-name">{m.name}</div>
                 <div className="note">
-                  {m.bpm} BPM · {fmtDur(m.durationSec)} · {m.beatSource === "model" ? t("song.srcModel") : t("song.srcDsp")} ·{" "}
-                  <span className={m.confidence < 0.35 ? "warn-text" : ""}>{confidence(m.confidence)}</span>
+                  {m.bpm} BPM · {fmtDur(m.durationSec)} ·{" "}
+                  {m.beatSource === "model" ? (
+                    <span className={m.confidence < 0.35 ? "warn-text" : ""}>{confidence(m.confidence)}</span>
+                  ) : (
+                    <span className="warn-text">{t("song.needsReanalyze")}</span>
+                  )}
                 </div>
               </div>
               {m.id === s.songId && (
@@ -113,6 +117,9 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 2) }))}>{t("song.double")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 0.5) }))}>{t("song.half")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...shiftDownbeat(x) }))}>{t("song.shift")}</button>
+                  {m.auto && (m.auto.downbeat !== m.downbeat || m.auto.beats.length !== m.beats.length) && (
+                    <button onClick={() => edit(m, (x) => ({ ...x, ...x.auto! }))}>{t("song.restore")}</button>
+                  )}
                   {confirmDelete === m.id ? (
                     <button className="danger" onClick={() => remove(m)}>
                       {t("song.deleteConfirm", { name: m.name })}
