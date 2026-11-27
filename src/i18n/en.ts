@@ -40,6 +40,8 @@ const en: Record<MessageKey, string> = {
   "song.reanalyze": "Re-analyze",
   "song.needsReanalyze": "Old analysis, please re-analyze",
   "song.section": "Section {n}",
+  "song.tempoVaries": "tempo varies",
+  "song.meter": "{n}/4",
   "song.sectionBars": "bars {a}–{b}",
   "song.restore": "Restore",
   "song.library": "Library",

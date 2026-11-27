@@ -186,6 +186,9 @@ html.w-widget #root {
 .beat.ahead .dot {
   opacity: 0.45;
 }
+.beat.unused {
+  opacity: 0.15;
+}
 .dot.on { background: var(--fg); }
 .dot.rest { border: 1px solid var(--muted); }
 .dot.perfect { background: var(--perfect); }

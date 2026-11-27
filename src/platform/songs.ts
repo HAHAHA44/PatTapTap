@@ -53,7 +53,7 @@ function analyzeInWorker(samples: Float32Array, sr: number, onProgress: (p: numb
   });
 }
 
-const autoOf = (a: SongAnalysis) => ({ beats: a.beats, downbeat: a.downbeat, bpm: a.bpm });
+const autoOf = (a: SongAnalysis) => ({ beats: a.beats, downbeat: a.downbeat, bars: a.bars, bpm: a.bpm });
 
 /** Decode audio bytes to mono at the analysis rate and analyze them in a worker. */
 async function analyzeBytes(bytes: ArrayBuffer, onStage: (s: ImportStage) => void): Promise<SongAnalysis> {

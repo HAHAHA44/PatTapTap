@@ -189,7 +189,8 @@ export class RhythmEngine {
       windows: { ...cfg.windows },
       calibrationMs: cfg.calibrationMs,
       cells: song
-        ? Array.from({ length: 4 }, (_, i) => new Array(song.bars[0]?.cells[i].length ?? 1).fill(true))
+        ? // every note position the song uses: the grid of its longest bar
+          song.bars.reduce((w, b) => (b.cells.length > w.length ? b.cells : w), [[true]] as boolean[][]).map((c) => new Array(c.length).fill(true))
         : Array.from({ length: cfg.beats }, (_, i) => cfg.pattern.cells[i % cfg.pattern.cells.length]),
       strictAlternate: cfg.keyMode === "alternate" && cfg.strictAlternate,
     };
@@ -198,7 +199,7 @@ export class RhythmEngine {
       summary.patternId = `song:${song.id}`;
       summary.patternBuiltin = false;
       summary.bpm = song.bpm;
-      summary.beats = 4;
+      summary.beats = song.bars[0]?.beats.length ?? 4;
       summary.detail.barStarts = song.bars.map((b) => Math.round(b.start * 1000));
     }
     return summary;

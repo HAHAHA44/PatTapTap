@@ -38,6 +38,8 @@ const zh = {
   "song.reanalyze": "重新分析",
   "song.needsReanalyze": "旧版分析，请点「重新分析」",
   "song.section": "段落 {n}",
+  "song.tempoVaries": "变速",
+  "song.meter": "{n}/4 拍",
   "song.sectionBars": "第 {a}–{b} 小节",
   "song.restore": "还原",
   "song.library": "曲库",

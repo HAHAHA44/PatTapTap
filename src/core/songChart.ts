@@ -11,13 +11,13 @@ export interface SongMeta extends SongAnalysis {
   ext: string;
   importedAt: number;
   /** The analysis result before any manual fixes (tempo x2 etc.), for "Restore". */
-  auto?: { beats: number[]; downbeat: number; bpm: number };
+  auto?: { beats: number[]; downbeat: number; bars?: number[]; bpm: number };
 }
 
 /** One bar of a song chart. Times are seconds from the start of the audio. */
 export interface ChartBar {
   start: number;
-  /** Start time of each beat in the bar (4/4 assumed). */
+  /** Start time of each beat in the bar (bars may differ in length, e.g. a 2/4 bar). */
   beats: number[];
   end: number;
   /** Per beat: 16th-note grid (4 cells) for drum levels, or one cell for "beats". */
@@ -25,6 +25,8 @@ export interface ChartBar {
 }
 
 const BEATS_PER_BAR = 4;
+/** Most beats one bar may have (the widget shows up to 8 boxes). */
+export const MAX_BAR_BEATS = 8;
 const GRID = 4; // 16th notes
 /** Max distance from the 16th grid (in grid steps) for an onset to become a note. */
 const MAX_QUANT_ERROR = 0.35;
@@ -62,25 +64,74 @@ export function buildChart(a: SongAnalysis, level: SongLevel): ChartBar[] {
   return bars;
 }
 
+const median = (xs: number[]) => {
+  const v = xs.slice().sort((p, q) => p - q);
+  return v.length ? v[v.length >> 1] : 0;
+};
+
+/**
+ * Bars as [first beat index, beat count]. Uses every bar start the model found, so
+ * time-signature changes (a 2/4 bar, a 3/4 part) are followed. Guards against model
+ * slips: a bar start missed (one "bar" twice as long) is split into normal bars, and a
+ * spurious start inside a bar (3+1, 2+2) is merged back. Older analyses without bar
+ * starts count 4/4 from `downbeat`.
+ */
+export function barLayout(a: SongAnalysis): [number, number][] {
+  const n = a.beats.length;
+  const starts = (a.bars?.length ? a.bars : [a.downbeat]).filter((i) => i >= 0 && i < n);
+  if (!starts.length) return [];
+  let lens = starts.slice(1).map((s, k) => s - starts[k]);
+  const typical = Math.max(2, Math.min(MAX_BAR_BEATS, Math.round(median(lens)) || BEATS_PER_BAR));
+  const out: [number, number][] = [];
+  // merge spurious short bars that add up to a normal one, and single-beat bars
+  const merged: [number, number][] = [];
+  for (let k = 0; k < lens.length; k++) {
+    const len = lens[k];
+    const next = lens[k + 1];
+    if (len < typical && next !== undefined && len + next === typical) {
+      merged.push([starts[k], typical]);
+      k++;
+    } else if (len === 1 && merged.length) merged[merged.length - 1][1] += 1;
+    else merged.push([starts[k], len]);
+  }
+  // split bars that are too long (a missed bar start)
+  for (const [s0, len] of merged) {
+    if (len <= MAX_BAR_BEATS && len < typical * 1.5) {
+      out.push([s0, len]);
+      continue;
+    }
+    let s = s0;
+    let left = len;
+    while (left > 0) {
+      let take = Math.min(typical, left);
+      if (left - take === 1 && take < MAX_BAR_BEATS) take++; // no 1-beat remainder
+      out.push([s, take]);
+      s += take;
+      left -= take;
+    }
+  }
+  // after the last bar start: continue with normal bars while beats last
+  for (let s = starts[starts.length - 1]; s + typical <= n; s += typical) out.push([s, typical]);
+  return out;
+}
+
 /** Bars with every detected note (before sectioning). */
 function rawBars(a: SongAnalysis, level: SongLevel): ChartBar[] {
   const b = a.beats;
-  const first = a.downbeat;
-  const nBars = Math.floor((b.length - first) / BEATS_PER_BAR);
-  if (nBars <= 0) return [];
+  const layout = barLayout(a);
+  if (!layout.length) return [];
   const beatAt = (k: number) => (k < b.length ? b[k] : b[b.length - 1] + (k - b.length + 1) * (b[b.length - 1] - b[b.length - 2]));
 
-  const bars: ChartBar[] = [];
-  for (let i = 0; i < nBars; i++) {
-    const k0 = first + i * BEATS_PER_BAR;
-    const beats = Array.from({ length: BEATS_PER_BAR }, (_, j) => beatAt(k0 + j));
-    bars.push({
-      start: beats[0],
-      beats,
-      end: beatAt(k0 + BEATS_PER_BAR),
-      cells: Array.from({ length: BEATS_PER_BAR }, () => (level === "beats" ? [true] : new Array(GRID).fill(false))),
-    });
-  }
+  const owner = new Map<number, [number, number]>(); // beat index -> [bar, beat in bar]
+  const bars: ChartBar[] = layout.map(([k0, len], i) => {
+    for (let j = 0; j < len; j++) owner.set(k0 + j, [i, j]);
+    return {
+      start: beatAt(k0),
+      beats: Array.from({ length: len }, (_, j) => beatAt(k0 + j)),
+      end: beatAt(k0 + len),
+      cells: Array.from({ length: len }, () => (level === "beats" ? [true] : new Array(GRID).fill(false))),
+    };
+  });
   if (level === "beats") return bars;
 
   const onsets = [...a.onsets.low, ...a.onsets.mid, ...(level === "all" ? a.onsets.high : [])].sort((x, y) => x - y);
@@ -96,12 +147,18 @@ function rawBars(a: SongAnalysis, level: SongLevel): ChartBar[] {
       beat++;
       j = 0;
     }
-    const rel = beat - first;
-    if (rel < 0) continue;
-    const bar = bars[Math.floor(rel / BEATS_PER_BAR)];
-    if (bar) bar.cells[rel % BEATS_PER_BAR][j] = true;
+    const at = owner.get(beat);
+    if (at) bars[at[0]].cells[at[1]][j] = true;
   }
   return bars;
+}
+
+/** Average tempo (BPM) of bars `from`..`to` (inclusive). */
+export function barsBpm(bars: ChartBar[], from: number, to: number): number {
+  let beats = 0;
+  for (let i = from; i <= to; i++) beats += bars[i].beats.length;
+  const dur = bars[to].end - bars[from].start;
+  return dur > 0 ? Math.round((60 * beats) / dur) : 0;
 }
 
 /** A run of bars that all use one rhythm. Bar indices are inclusive. */
@@ -129,7 +186,9 @@ function majority(bars: ChartBar[], from: number, to: number): boolean[][] {
   );
 }
 
+/** Cells that differ; Infinity for bars of different shape (beat counts). */
 function diff(a: boolean[][], b: boolean[][]): number {
+  if (a.length !== b.length || a.some((c, i) => c.length !== b[i].length)) return Infinity;
   let d = 0;
   a.forEach((c, i) => c.forEach((v, j) => (d += v !== b[i][j] ? 1 : 0)));
   return d;
@@ -149,6 +208,18 @@ function noteCount(cells: boolean[][]): number {
  * than MIN_SECTION_BARS fold into their more similar neighbour.
  */
 export function findSections(bars: ChartBar[]): ChartSection[] {
+  // bars of different length never share a rhythm: section each run of equal bars
+  const out: ChartSection[] = [];
+  for (let i = 0; i < bars.length; ) {
+    let j = i;
+    while (j + 1 < bars.length && bars[j + 1].beats.length === bars[i].beats.length) j++;
+    for (const sec of sectionRun(bars.slice(i, j + 1))) out.push({ ...sec, firstBar: sec.firstBar + i, lastBar: sec.lastBar + i });
+    i = j + 1;
+  }
+  return out;
+}
+
+function sectionRun(bars: ChartBar[]): ChartSection[] {
   if (!bars.length) return [];
   const key = (c: boolean[][]) => c.map((b) => b.map((v) => (v ? 1 : 0)).join("")).join("|");
   const phrases: ChartSection[] = [];

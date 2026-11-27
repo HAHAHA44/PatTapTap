@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { rescaleTempo } from "../core/beatTrack";
+import { rescaleTempo, tempoRange } from "../core/beatTrack";
 import { currentSongId, PLAY_MODES, Settings } from "../core/settings";
-import { buildChart, chartNoteCount, chartSections, SONG_LEVELS, SongMeta } from "../core/songChart";
+import { barsBpm, buildChart, chartNoteCount, chartSections, SONG_LEVELS, SongMeta } from "../core/songChart";
 import { t } from "../i18n";
 import { ImportStage, importSong, reanalyzeSong, songs } from "../platform/songs";
 import { PatternPreview } from "./PatternEditor";
 
 const fmtDur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+
+/** "150 BPM", or "120–150 BPM · tempo varies" for songs that change tempo. */
+function bpmText(m: SongMeta) {
+  const r = tempoRange(m.beats);
+  return r ? `${r[0]}–${r[1]} BPM · ${t("song.tempoVaries")}` : `${m.bpm} BPM`;
+}
 
 function confidence(c: number) {
   return c >= 0.6 ? t("song.conf.high") : c >= 0.35 ? t("song.conf.mid") : t("song.conf.low");
@@ -120,7 +126,7 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
               <div key={`${i}-${id}`} className={`pl-row ${isCurrent ? "on" : ""}`} onClick={() => update({ playIndex: i })}>
                 <span className="pl-mark">{isCurrent ? "▶" : i + 1}</span>
                 <span className="pl-name">{m?.name ?? "…"}</span>
-                <span className="note">{m ? `${m.bpm} BPM · ${fmtDur(m.durationSec)}` : ""}</span>
+                <span className="note">{m ? `${bpmText(m)} · ${fmtDur(m.durationSec)}` : ""}</span>
                 <span className="pl-act" onClick={(e) => e.stopPropagation()}>
                   <button disabled={i === 0} onClick={() => moveEntry(i, -1)} title={t("song.moveUp")}>
                     ↑
@@ -190,8 +196,8 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
                 <div className="song-main">
                   <div className="song-name">{m.name}</div>
                   <div className="note">
-                    {m.bpm} BPM · {fmtDur(m.durationSec)} ·{" "}
-                    {m.beatSource === "model" ? (
+                    {bpmText(m)} · {fmtDur(m.durationSec)} ·{" "}
+                    {m.beatSource === "model" && m.bars ? (
                       <span className={m.confidence < 0.35 ? "warn-text" : ""}>{confidence(m.confidence)}</span>
                     ) : (
                       <span className="warn-text">{t("song.needsReanalyze")}</span>
@@ -215,7 +221,7 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
                   </button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 2) }))}>{t("song.double")}</button>
                   <button onClick={() => edit(m, (x) => ({ ...x, ...rescaleTempo(x, 0.5) }))}>{t("song.half")}</button>
-                  {m.auto && (m.auto.downbeat !== m.downbeat || m.auto.beats.length !== m.beats.length) && (
+                  {m.auto && (m.auto.downbeat !== m.downbeat || m.auto.beats.length !== m.beats.length || m.auto.bars?.length !== m.bars?.length) && (
                     <button onClick={() => edit(m, (x) => ({ ...x, ...x.auto! }))}>{t("song.restore")}</button>
                   )}
                   {confirmDelete === m.id ? (
@@ -246,6 +252,8 @@ export default function SongSection({ s, update }: { s: Settings; update: (p: Pa
                 <span className="sec-name">{t("song.section", { n: i + 1 })}</span>
                 <span className="note sec-range">
                   {t("song.sectionBars", { a: sec.firstBar + 1, b: sec.lastBar + 1 })} · {fmtDur(chart[sec.firstBar].start)}
+                  {tempoRange(focus.beats) && ` · ${barsBpm(chart, sec.firstBar, sec.lastBar)} BPM`}
+                  {sec.cells.length !== 4 && ` · ${t("song.meter", { n: sec.cells.length })}`}
                 </span>
                 <PatternPreview cells={sec.cells} />
               </div>

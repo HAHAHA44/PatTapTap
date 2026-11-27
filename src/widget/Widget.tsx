@@ -32,10 +32,11 @@ const BEAT_W = 34; // wide enough for four 16th-note dots on one row
 const GAP = 4;
 const PAD = 4;
 
-function widgetSize(s: Settings): [number, number] {
+/** `songBeats`: longest bar of the loaded song chart (song mode only). */
+function widgetSize(s: Settings, songBeats: number): [number, number] {
   const k = s.widgetScale;
   if (s.cue === "sound") return [Math.round(H * k), Math.round(H * k)];
-  const n = beatsPerBar(s);
+  const n = s.mode === "song" ? songBeats : beatsPerBar(s);
   return [Math.round((PAD + ICON + GAP + n * BEAT_W + (n - 1) * GAP + PAD) * k), Math.round(H * k)];
 }
 
@@ -70,6 +71,9 @@ export default function Widget() {
   const [hotkeyErrors, setHotkeyErrors] = useState<string[]>([]);
   const [hint, setHint] = useState<string>("");
   const [lastAcc, setLastAcc] = useState<number | null>(null);
+  /** Boxes shown in song mode: the longest bar of the current song (bars vary). */
+  const [songBeats, setSongBeats] = useState(4);
+  const songBeatsRef = useRef(4);
 
   const settingsRef = useRef<Settings | null>(null);
   const runningRef = useRef(false);
@@ -171,6 +175,13 @@ export default function Widget() {
         const [meta, bytes] = await Promise.all([songs.read(songId), songs.loadAudio(songId)]);
         const bars = buildChart(meta, s.songLevel);
         if (!bars.length) return setHint(t("widget.noSong"));
+        const longest = Math.max(...bars.map((b) => b.beats.length));
+        if (longest !== songBeatsRef.current) {
+          songBeatsRef.current = longest;
+          setSongBeats(longest);
+          const [w, h] = widgetSize(s, longest);
+          resizeAnchored(w, h).catch(() => {});
+        }
         song = { id: meta.id, name: meta.name, bpm: meta.bpm, buffer: await engine.decode(bytes), bars, volume: s.songVolume, clicks: s.songClicks };
       } catch {
         return setHint(t("widget.noSong"));
@@ -217,7 +228,7 @@ export default function Widget() {
         await emit(EV.settingsChanged, s);
       }
       getCurrentWindow().setIgnoreCursorEvents(s.clickThrough).catch(() => {});
-      const [w, h] = widgetSize(s);
+      const [w, h] = widgetSize(s, songBeatsRef.current);
       if (prev) resizeAnchored(w, h).catch(() => {});
       // Restart with the new config if something timing-related changed mid-practice.
       if (runningRef.current && prev && JSON.stringify(toEngineConfig(prev)) !== JSON.stringify(toEngineConfig(s))) {
@@ -248,7 +259,7 @@ export default function Widget() {
       applyLanguage(s);
       settingsRef.current = s;
       setSettings(s);
-      const [w, h] = widgetSize(s);
+      const [w, h] = widgetSize(s, songBeatsRef.current);
       await placeInitial(w, h).catch(() => {});
       await getCurrentWindow().setIgnoreCursorEvents(s.clickThrough).catch(() => {});
       await getCurrentWindow().show();
@@ -437,10 +448,12 @@ export default function Widget() {
 
   const visual = settings.cue !== "sound";
   const shownBar = beat?.bar ?? 0;
-  const nBeats = beatsPerBar(settings);
+  const nBeats = settings.mode === "song" ? songBeats : beatsPerBar(settings);
   // Dots per beat for a bar; song charts differ bar to bar, so ask the engine.
+  const slotsAt = (bar: number): BarSlot[] => (running && engine.slotsOf(bar)) || idleSlots;
+  const beatsIn = (bar: number) => slotsAt(bar).reduce((m, x) => Math.max(m, x.beat + 1), 0);
   const layout = (bar: number) => {
-    const sl: BarSlot[] = (running && engine.slotsOf(bar)) || idleSlots;
+    const sl = slotsAt(bar);
     const per: { on: boolean; noteIndex: number }[][] = Array.from({ length: nBeats }, () => []);
     for (const x of sl) per[x.beat]?.push({ on: x.isNote, noteIndex: x.noteIndex });
     return per;
@@ -492,10 +505,12 @@ export default function Widget() {
             const ahead = running && beat !== null && i > beat.beat;
             const barOf = ahead ? shownBar - 1 : shownBar;
             if (ahead) cells = prevBar[i];
+            // song bars can be shorter than the widest bar (e.g. a 2/4 bar): extra boxes fade
+            const unused = i >= beatsIn(barOf);
             return (
               <div
                 key={i}
-                className={`beat ${active ? "active" : ""} ${active && beat?.countIn ? "countin" : ""} ${i === 0 ? "first" : ""} ${ahead ? "ahead" : ""}`}
+                className={`beat ${active ? "active" : ""} ${active && beat?.countIn ? "countin" : ""} ${i === 0 ? "first" : ""} ${ahead ? "ahead" : ""} ${unused ? "unused" : ""}`}
               >
                 {cells.map((c, j) => {
                   const g = c.on ? results.current.get(`${barOf}:${c.noteIndex}`) : undefined;

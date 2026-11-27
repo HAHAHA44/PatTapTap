@@ -9,8 +9,11 @@ export interface SongAnalysis {
   bpm: number;
   /** Beat times in seconds from the start of the audio. */
   beats: number[];
-  /** Index into `beats` of the first bar start (4/4); beats before it are a pickup. */
+  /** Index into `beats` of the first bar start; beats before it are a pickup. */
   downbeat: number;
+  /** Indices into `beats` of every bar start found by the model (ascending). Older
+   *  analyses lack it and use 4/4 counted from `downbeat`. */
+  bars?: number[];
   /** Onset times (s) per band: low ≈ kick, mid ≈ snare/body, high ≈ hats/cymbals. */
   onsets: { low: number[]; mid: number[]; high: number[] };
   /** 0..1, the model's mean beat probability at the detected beats. */
@@ -191,14 +194,52 @@ export function beatSlope(beats: number[]): number {
   return num / den;
 }
 
+const median = (xs: number[]) => {
+  const v = xs.slice().sort((a, b) => a - b);
+  return v.length ? v[v.length >> 1] : 0;
+};
+
+/** Relative tempo jump above this between the 4 intervals before and after a beat
+ *  counts as a sudden tempo change (gradual drift and human jitter stay below). */
+const TEMPO_JUMP = 0.06;
+
 /**
- * Beats sit on whole analysis frames (~11.6 ms). Replace each with a local linear
- * fit over its neighbours: removes that rounding but still follows tempo drift.
+ * Indices of beats where the tempo changes suddenly: the median of the 4 beat
+ * intervals after differs from the 4 before by more than TEMPO_JUMP (local maxima only).
+ */
+export function tempoChanges(beats: number[]): number[] {
+  const d = beats.slice(1).map((b, i) => b - beats[i]);
+  const jump = beats.map((_, k) => {
+    if (k < 4 || k + 4 > d.length) return 0;
+    const before = median(d.slice(k - 4, k));
+    const after = median(d.slice(k, k + 4));
+    return before > 0 ? Math.abs(after / before - 1) : 0;
+  });
+  const out: number[] = [];
+  jump.forEach((j, k) => {
+    if (j <= TEMPO_JUMP) return;
+    for (let q = Math.max(0, k - 2); q <= Math.min(jump.length - 1, k + 2); q++) if (jump[q] > j || (jump[q] === j && q < k)) return;
+    out.push(k);
+  });
+  return out;
+}
+
+/**
+ * Model beats sit on 20 ms frames. Replace each with a local linear fit over its
+ * neighbours: removes that rounding but still follows tempo drift. The fit never
+ * reaches across a sudden tempo change (that would drag both tempos onto one line);
+ * the beat at a change point keeps its raw time.
  */
 export function smoothBeats(beats: number[], radius = 4) {
   const src = beats.slice();
+  const cuts = tempoChanges(src);
+  let seg = 0; // cuts[seg - 1] <= i < cuts[seg]
   for (let i = 0; i < src.length; i++) {
-    const a = Math.max(0, i - radius), b = Math.min(src.length - 1, i + radius);
+    while (seg < cuts.length && cuts[seg] <= i) seg++;
+    if (cuts[seg - 1] === i) continue; // the change point itself
+    const lo = seg > 0 ? cuts[seg - 1] : 0;
+    const hi = seg < cuts.length ? cuts[seg] : src.length - 1;
+    const a = Math.max(lo, i - radius), b = Math.min(hi, i + radius);
     if (b - a < 2) continue;
     const xs: number[] = [], ys: number[] = [];
     for (let k = a; k <= b; k++) {
@@ -213,6 +254,21 @@ export function smoothBeats(beats: number[], radius = 4) {
     });
     beats[i] = my + (num / den) * (i - mx);
   }
+}
+
+/** Local tempo (BPM) at each beat interval: median over ±4 intervals. */
+function localBpm(beats: number[]): number[] {
+  const d = beats.slice(1).map((b, i) => b - beats[i]);
+  return d.map((_, i) => 60 / median(d.slice(Math.max(0, i - 4), i + 5)));
+}
+
+/** Tempo range [low, high] (BPM, 5th-95th percentile of local tempo). Null when the
+ *  song keeps one tempo (spread under 6%). */
+export function tempoRange(beats: number[]): [number, number] | null {
+  const v = localBpm(beats).sort((a, b) => a - b);
+  if (v.length < 8) return null;
+  const lo = v[Math.floor(v.length * 0.05)], hi = v[Math.floor(v.length * 0.95)];
+  return hi / lo < 1.06 ? null : [Math.round(lo), Math.round(hi)];
 }
 
 // ---------------------------------------------------------------- drum onsets
@@ -261,23 +317,26 @@ export function detectOnsets(x: Float32Array, sr: number, progress?: (p: number)
  */
 export function rescaleTempo(a: SongAnalysis, factor: 0.5 | 2): SongAnalysis {
   const anchor = a.downbeat;
+  const parity = anchor % 2;
   let beats: number[];
-  let anchorNew: number;
+  let map: (i: number) => number;
   if (factor === 2) {
     beats = [];
     a.beats.forEach((b, i) => {
       beats.push(b);
       if (i + 1 < a.beats.length) beats.push(Math.round(((b + a.beats[i + 1]) / 2) * 1000) / 1000);
     });
-    anchorNew = anchor * 2;
+    map = (i) => i * 2;
   } else {
-    const parity = anchor % 2;
     beats = a.beats.filter((_, i) => i % 2 === parity);
-    anchorNew = (anchor - parity) / 2;
+    // bar starts on dropped beats move to the kept beat before them
+    map = (i) => Math.floor((i - parity) / 2);
   }
   // Keep the anchor's absolute index (not mod 4): after x2 a bar spans only half the
   // old one, and the exact anchor is what lets /2 pick the right beats back.
-  return { ...a, beats, bpm: Math.round(a.bpm * factor * 10) / 10, downbeat: anchorNew };
+  const out: SongAnalysis = { ...a, beats, bpm: Math.round(a.bpm * factor * 10) / 10, downbeat: map(anchor) };
+  if (a.bars) out.bars = [...new Set(a.bars.map(map).filter((i) => i >= 0 && i < beats.length))];
+  return out;
 }
 
 /** Average stereo/multi-channel to mono and decimate by an integer factor. */

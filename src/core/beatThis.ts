@@ -152,17 +152,22 @@ export function framesToBeats(pred: { beat: Float32Array; downbeat: Float32Array
 export function buildAnalysis(info: OnsetInfo, m: { beats: number[]; downbeats: number[]; meanProb: number }): SongAnalysis {
   if (m.beats.length < 8) throw new Error("no beats found");
   const beats = m.beats.slice();
+  // bar starts as beat indices (downbeats were snapped onto beats); first one anchors
+  const nearest = (t: number) => {
+    let idx = 0;
+    for (let i = 1; i < beats.length; i++) if (Math.abs(beats[i] - t) < Math.abs(beats[idx] - t)) idx = i;
+    return idx;
+  };
+  const bars = [...new Set(m.downbeats.map(nearest))].sort((a, b) => a - b);
+  const idx = bars[0] ?? 0;
   smoothBeats(beats);
-  // first bar start: the beat nearest to the model's first downbeat
-  const first = m.downbeats[0];
-  let idx = 0;
-  if (first !== undefined) for (let i = 1; i < beats.length; i++) if (Math.abs(beats[i] - first) < Math.abs(beats[idx] - first)) idx = i;
   return {
     version: 2,
     durationSec: info.durationSec,
     beats: beats.map((b) => Math.round(b * 1000) / 1000),
     bpm: Math.round((60 / beatSlope(beats)) * 10) / 10,
     downbeat: idx,
+    bars,
     onsets: info.onsets,
     confidence: Math.round(m.meanProb * 100) / 100,
     beatSource: "model",
