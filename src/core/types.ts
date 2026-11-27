@@ -96,6 +96,8 @@ export interface EngineConfig {
   songRev: number;
   /** Challenge: play this many bars (after the count-in), then end. Every note counts. */
   challengeBars?: number;
+  /** Challenge chart: per-bar cells (bar i uses challengeCells[i]); the count-in uses `pattern`. */
+  challengeCells?: boolean[][][];
 }
 
 export interface LiveStats {

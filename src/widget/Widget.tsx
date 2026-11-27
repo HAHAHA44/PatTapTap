@@ -4,8 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Menu } from "@tauri-apps/api/menu";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { RhythmEngine } from "../core/engine";
-import type { ChallengeSpec } from "../core/challenge";
-import { expandBar, PRESETS } from "../core/pattern";
+import { chartCells, ChallengeSpec } from "../core/challenge";
+import { expandBar } from "../core/pattern";
 import { beatsPerBar, currentPattern, currentSongId, nextPlayIndex, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
 import { buildChart } from "../core/songChart";
 import { songs } from "../platform/songs";
@@ -232,7 +232,8 @@ export default function Widget() {
         results.current.clear();
         queue.current = [];
         setCombo(0);
-        const pattern = PRESETS.find((p) => p.id === ch.spec.patternId) ?? PRESETS[0];
+        // the count-in clicks quarters; the chart itself comes bar by bar
+        const pattern = { id: `challenge:${ch.kind}`, name: ch.kind === "daily" ? t("online.daily") : t("online.pk"), cells: [[true]] };
         const cfg = {
           ...toEngineConfig(s),
           mode: "metronome" as const,
@@ -243,6 +244,7 @@ export default function Widget() {
           countIn: true,
           judge: true,
           challengeBars: ch.spec.bars,
+          challengeCells: chartCells(ch.spec),
         };
         challengeRef.current = ch;
         setChallenge(ch.spec);

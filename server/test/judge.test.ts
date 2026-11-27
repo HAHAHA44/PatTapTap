@@ -1,13 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { challengeDate, chartDurationMs, dailySpec, judgeTaps, noteTimes, specFromSeed } from "../../src/core/challenge";
+import { challengeDate, chartCells, chartDurationMs, dailySpec, judgeTaps, noteTimes, POOL_SIZE, specFromSeed } from "../../src/core/challenge";
 
 test("same seed, same chart; charts vary by day", () => {
   assert.deepEqual(dailySpec("2026-11-27"), dailySpec("2026-11-27"));
   const specs = new Set(Array.from({ length: 30 }, (_, i) => JSON.stringify(dailySpec(`2026-12-${String(i + 1).padStart(2, "0")}`))));
   assert.ok(specs.size > 10);
   const s = specFromSeed("x");
-  assert.ok(s.bpm >= 70 && s.bpm <= 140 && (s.beats === 3 || s.beats === 4) && s.bars === 16);
+  assert.ok(s.bpm >= 80 && s.bpm <= 120 && (s.beats === 3 || s.beats === 4));
+});
+
+test("challenges last about two minutes in whole phrases, every pool rhythm used", () => {
+  const phrases = new Set<string>();
+  for (let d = 0; d < 400; d++) {
+    const s = specFromSeed(`daily:${d}`);
+    const sec = (s.bars * s.beats * 60) / s.bpm;
+    assert.ok(sec > 105 && sec < 135, `${sec}s`);
+    assert.equal(s.bars % s.phrase!.length, 0);
+    assert.ok(chartCells(s).every((bar) => bar.length === s.beats));
+    phrases.add(s.phrase!.join("/"));
+  }
+  assert.equal(phrases.size, POOL_SIZE);
+});
+
+test("charts from before phrases still play (old PK matches)", () => {
+  assert.deepEqual(noteTimes({ patternId: "eighth", bpm: 120, beats: 2, bars: 1 }), [0, 250, 500, 750]);
 });
 
 test("daily date follows the configured offset", () => {
@@ -31,7 +48,7 @@ test("grades, strays and misses", () => {
 });
 
 test("perfect run scores 10000; stopping early does not help", () => {
-  const notes = noteTimes({ patternId: "eighth", bpm: 100, beats: 4, bars: 16 });
+  const notes = noteTimes(specFromSeed("y"));
   assert.equal(judgeTaps(notes, notes).score, 10000);
   assert.equal(judgeTaps(notes, notes.slice(0, 8)).score, Math.round((8 / notes.length) * 10000));
 });

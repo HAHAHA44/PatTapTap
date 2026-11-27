@@ -196,7 +196,9 @@ export class RhythmEngine {
       cells: song
         ? // every note position the song uses: the grid of its longest bar
           song.bars.reduce((w, b) => (b.cells.length > w.length ? b.cells : w), [[true]] as boolean[][]).map((c) => new Array(c.length).fill(true))
-        : Array.from({ length: cfg.beats }, (_, i) => cfg.pattern.cells[i % cfg.pattern.cells.length]),
+        : cfg.challengeCells?.[0]
+          ? cfg.challengeCells[0].map((c) => new Array(c.length).fill(true))
+          : Array.from({ length: cfg.beats }, (_, i) => cfg.pattern.cells[i % cfg.pattern.cells.length]),
       strictAlternate: cfg.keyMode === "alternate" && cfg.strictAlternate,
     };
     if (song) {
@@ -268,6 +270,8 @@ export class RhythmEngine {
       const b = this.song.bars[i];
       return b ? gridSlots(b.cells) : null;
     }
+    const chart = this.cfg?.challengeCells;
+    if (chart && i >= 0) return chart[i] ? gridSlots(chart[i]) : null;
     return this.patternSlots;
   }
 
@@ -280,6 +284,9 @@ export class RhythmEngine {
     else if (keyMode === "alternate" && code === keys[1]) hand = 1;
     else return;
     if (this.tapTimes.length < 20000) this.tapTimes.push(Math.round((t - this.cfg.calibrationMs - this.t0Perf) * 10) / 10);
+    // every note within reach of this tap must be pending (the timer may lag a tick);
+    // only schedule here, expiring stays tied to the tap's own time below
+    if (this.ctx && !this.songEnded) this.scheduleAhead();
 
     this.expireMisses(t);
     let best = -1;
@@ -380,11 +387,12 @@ export class RhythmEngine {
     const first = this.cfg.countIn ? -1 : 0;
     const start = (i - first) * this.barLen;
     const spb = this.barLen / this.cfg.beats;
+    const chart = this.cfg.challengeCells;
     return {
       start,
       beats: Array.from({ length: this.cfg.beats }, (_, k) => start + k * spb),
       end: start + this.barLen,
-      slots: this.patternSlots,
+      slots: chart && i >= 0 && chart[i] ? gridSlots(chart[i]) : this.patternSlots,
       countIn: i < 0,
     };
   }
@@ -394,8 +402,6 @@ export class RhythmEngine {
     this.syncClock();
     this.expireMisses(performance.now());
     const ctx = this.ctx;
-    const horizon = ctx.currentTime + LOOKAHEAD_S;
-    const cfg = this.cfg;
     const song = this.song;
 
     if (this.songEnded) {
@@ -407,7 +413,15 @@ export class RhythmEngine {
       }
       return;
     }
+    this.scheduleAhead();
+  }
 
+  /** Schedule sounds and pending notes up to the lookahead horizon. */
+  private scheduleAhead() {
+    const ctx = this.ctx!;
+    const horizon = ctx.currentTime + LOOKAHEAD_S;
+    const cfg = this.cfg;
+    const song = this.song;
     for (;;) {
       if (!this.curBar) {
         this.curBar = this.barAt(this.bar);

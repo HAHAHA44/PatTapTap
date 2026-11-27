@@ -83,12 +83,11 @@ test("accounts, sync, daily challenge, leaderboards, friends, PK", async () => {
   assert.equal((await call("POST", "/daily/submit", { date: "2000-01-01", taps: [] }, a.accessToken)).data.error, "expired");
   assert.equal((await call("POST", "/daily/submit", { date: daily.date, taps: ["x"] }, a.accessToken)).status, 400);
 
-  const board = (await call("GET", "/leaderboard?board=daily", undefined, b.accessToken)).data;
+  const board = (await call("GET", "/leaderboard", undefined, b.accessToken)).data;
   const ia = board.entries.findIndex((e: any) => e.user.id === a.user.id);
   const ib = board.entries.findIndex((e: any) => e.user.id === b.user.id);
   assert.ok(ia >= 0 && ib > ia);
   assert.equal(board.me.score, half.data.result.score);
-  assert.ok((await call("GET", "/leaderboard?board=total", undefined, a.accessToken)).data.me.score >= 10000);
 
   // --- friends
   const found = (await call("GET", `/users/search?q=${encodeURIComponent("bob" + run)}`, undefined, a.accessToken)).data.users;
@@ -100,7 +99,7 @@ test("accounts, sync, daily challenge, leaderboards, friends, PK", async () => {
   assert.equal(incoming[0].user.id, a.user.id);
   await call("POST", `/friends/requests/${incoming[0].id}/accept`, undefined, b.accessToken);
   assert.equal((await call("GET", "/friends", undefined, a.accessToken)).data.friends[0].id, b.user.id);
-  const fb = (await call("GET", "/leaderboard?board=daily&scope=friends", undefined, b.accessToken)).data;
+  const fb = (await call("GET", "/leaderboard?scope=friends", undefined, b.accessToken)).data;
   assert.deepEqual(fb.entries.map((e: any) => e.user.id), [a.user.id, b.user.id]);
 
   // --- PK

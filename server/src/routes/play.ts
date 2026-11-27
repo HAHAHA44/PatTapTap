@@ -1,4 +1,4 @@
-// Practice history sync, daily challenge, leaderboards, asynchronous PK.
+// Practice history sync, daily challenge and its leaderboard, asynchronous PK.
 // Challenge scores are never taken from the client: it sends its raw tap times and
 // the server judges them with the same code the app uses (src/core/challenge.ts).
 
@@ -33,14 +33,11 @@ function judge(spec: ChallengeSpec, taps: unknown): ChallengeResult {
 }
 
 const dailyKey = (day: string) => `lb:daily:${day}`;
-const TOTAL_KEY = "lb:total";
 
-/** Leaderboards live in Redis sorted sets; rebuilt from Postgres if Redis lost them. */
-async function ensureBoard(ctx: Ctx, key: string, day: string | null) {
+/** Daily leaderboards live in Redis sorted sets; rebuilt from Postgres if Redis lost them. */
+async function ensureBoard(ctx: Ctx, key: string, day: string) {
   if (await ctx.redis.exists(key)) return;
-  const rows = day
-    ? await ctx.sql<{ id: string; score: number }[]>`SELECT user_id::text AS id, score FROM daily_scores WHERE day = ${day}`
-    : await ctx.sql<{ id: string; score: number }[]>`SELECT user_id::text AS id, sum(score)::int AS score FROM daily_scores GROUP BY user_id`;
+  const rows = await ctx.sql<{ id: string; score: number }[]>`SELECT user_id::text AS id, score FROM daily_scores WHERE day = ${day}`;
   if (!rows.length) return;
   const args: (string | number)[] = [];
   for (const r of rows) args.push(r.score, r.id);
@@ -146,10 +143,8 @@ export async function playRoutes(app: FastifyInstance, ctx: Ctx) {
     const improved = !prev || result.score > prev.score;
     if (improved) {
       await ensureBoard(ctx, dailyKey(b.date), b.date);
-      await ensureBoard(ctx, TOTAL_KEY, null);
       await ctx.redis.zadd(dailyKey(b.date), "GT", result.score, req.userId);
       await ctx.redis.expire(dailyKey(b.date), 40 * 86400);
-      await ctx.redis.zincrby(TOTAL_KEY, result.score - (prev?.score ?? 0), req.userId);
     }
     const rank = await ctx.redis.zrevrank(dailyKey(b.date), req.userId);
     return { result, best: improved ? result.score : prev.score, improved, rank: rank === null ? null : rank + 1 };
@@ -158,12 +153,12 @@ export async function playRoutes(app: FastifyInstance, ctx: Ctx) {
   // ---------------------------------------------------------------- leaderboards
   app.get("/leaderboard", auth, async (req) => {
     const q = parse(
-      z.object({ board: z.enum(["daily", "total"]).default("daily"), scope: z.enum(["global", "friends"]).default("global"), date: Day.optional() }),
+      z.object({ scope: z.enum(["global", "friends"]).default("global"), date: Day.optional() }),
       req.query,
     );
     const day = q.date ?? today();
-    const key = q.board === "daily" ? dailyKey(day) : TOTAL_KEY;
-    await ensureBoard(ctx, key, q.board === "daily" ? day : null);
+    const key = dailyKey(day);
+    await ensureBoard(ctx, key, day);
     let entries: { id: string; score: number }[];
     if (q.scope === "global") {
       const raw = await ctx.redis.zrevrange(key, 0, BOARD_SIZE - 1, "WITHSCORES");
@@ -179,9 +174,8 @@ export async function playRoutes(app: FastifyInstance, ctx: Ctx) {
     const myRank = await ctx.redis.zrevrank(key, req.userId);
     const myScore = await ctx.redis.zscore(key, req.userId);
     return {
-      board: q.board,
       scope: q.scope,
-      date: q.board === "daily" ? day : null,
+      date: day,
       entries: entries.map((e, i) => ({ rank: i + 1, user: { id: e.id, nickname: names.get(e.id) ?? "?" }, score: e.score, me: e.id === req.userId })),
       me: myScore === null ? null : { rank: (myRank ?? 0) + 1, score: Number(myScore) },
     };

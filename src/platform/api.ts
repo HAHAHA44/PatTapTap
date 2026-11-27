@@ -30,12 +30,11 @@ export interface DailySubmit {
   improved: boolean;
   rank: number | null;
 }
-export type BoardKind = "daily" | "total";
 export type BoardScope = "global" | "friends";
+/** Today's daily-challenge ranking. */
 export interface Board {
-  board: BoardKind;
   scope: BoardScope;
-  date: string | null;
+  date: string;
   entries: { rank: number; user: PublicUser; score: number; me: boolean }[];
   me: { rank: number; score: number } | null;
 }
@@ -171,7 +170,7 @@ export const api = {
 
   daily: () => authed<DailyInfo>("GET", "/daily"),
   submitDaily: (date: string, taps: number[]) => authed<DailySubmit>("POST", "/daily/submit", { date, taps }),
-  leaderboard: (board: BoardKind, scope: BoardScope) => authed<Board>("GET", `/leaderboard?board=${board}&scope=${scope}`),
+  leaderboard: (scope: BoardScope) => authed<Board>("GET", `/leaderboard?scope=${scope}`),
 
   searchUsers: (q: string) => authed<{ users: (PublicUser & { friend: boolean })[] }>("GET", `/users/search?q=${encodeURIComponent(q)}`),
   friends: () => authed<Friends>("GET", "/friends"),

@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import type { ChallengeResult, ChallengeSpec } from "../core/challenge";
-import { PRESETS } from "../core/pattern";
-import { MessageKey, patternName, t } from "../i18n";
+import { ChallengeResult, ChallengeSpec, phraseCells } from "../core/challenge";
+import { MessageKey, t } from "../i18n";
 import {
   api,
   ApiError,
   AUTH_CHANGED,
   Board,
-  BoardKind,
   BoardScope,
   CHALLENGE_DONE,
   ChallengeOutcome,
@@ -47,13 +45,19 @@ const pct = (score: number) => `${(score / 100).toFixed(2)}%`;
 const who = (u: PublicUser) => `${u.nickname} #${u.id}`;
 
 function specText(spec: ChallengeSpec) {
-  const p = PRESETS.find((x) => x.id === spec.patternId) ?? PRESETS[0];
-  return t("online.spec", { pattern: patternName(p), beats: spec.beats, bpm: spec.bpm, bars: spec.bars });
+  const min = Math.round((spec.bars * spec.beats * 60) / spec.bpm / 60);
+  return t("online.spec", { beats: spec.beats, bpm: spec.bpm, min: Math.max(1, min) });
 }
 
+/** The repeating rhythm of a chart, bar by bar. */
 function SpecPreview({ spec }: { spec: ChallengeSpec }) {
-  const p = PRESETS.find((x) => x.id === spec.patternId) ?? PRESETS[0];
-  return <PatternPreview cells={p.cells} beats={spec.beats} />;
+  return (
+    <span className="phrase">
+      {phraseCells(spec).map((bar, i) => (
+        <PatternPreview key={i} cells={bar} beats={bar.length} />
+      ))}
+    </span>
+  );
 }
 
 function resultLine(r: ChallengeResult) {
@@ -199,12 +203,12 @@ function AuthForms() {
             type="password"
             autoComplete={mode === "login" ? "current-password" : "new-password"}
             minLength={mode === "login" ? undefined : 8}
+            placeholder={mode === "login" ? undefined : t("online.passwordRule")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </label>
-        {mode !== "login" && <p className="note">{t("online.passwordRule")}</p>}
         <div className="row">
           <button className="primary" type="submit" disabled={act.busy || (needsCode && code.length !== 6)}>
             {t(`online.${mode}Submit` as MessageKey)}
@@ -212,7 +216,6 @@ function AuthForms() {
           {act.error && <span className="warn-text">{act.error}</span>}
         </div>
       </form>
-      <p className="note">{t("online.why")}</p>
     </section>
   );
 }
@@ -247,7 +250,7 @@ function Signed({ me, onMe }: { me: Me; onMe: (m: Me) => void }) {
   }, [reload]);
 
   const play = (req: ChallengeRequest) => {
-    setNotice(t("online.playing"));
+    setNotice("");
     emit(PLAY_CHALLENGE, req).catch(() => {});
   };
 
@@ -275,7 +278,6 @@ function Signed({ me, onMe }: { me: Me; onMe: (m: Me) => void }) {
                 {daily.best ? t("online.best", { line: resultLine(daily.best), n: daily.attempts }) : t("online.notPlayed")}
               </span>
             </div>
-            <p className="note">{t("online.dailyRule")}</p>
           </>
         )}
       </section>
@@ -326,41 +328,29 @@ function AccountSection({ me, onMe }: { me: Me; onMe: (m: Me) => void }) {
         )}
         {act.error && <span className="warn-text">{act.error}</span>}
       </div>
-      <p className="note">{t("online.idHint", { id: me.id })}</p>
     </section>
   );
 }
 
 function LeaderboardSection({ rev }: { rev: number }) {
-  const [kind, setKind] = useState<BoardKind>("daily");
   const [scope, setScope] = useState<BoardScope>("global");
   const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
     setErr("");
-    api.leaderboard(kind, scope).then(setBoard).catch((e) => setErr(errText(e)));
-  }, [kind, scope, rev]);
-  const fmt = (score: number) => (kind === "daily" ? pct(score) : t("online.points", { n: (score / 100).toFixed(1) }));
+    api.leaderboard(scope).then(setBoard).catch((e) => setErr(errText(e)));
+  }, [scope, rev]);
+  const fmt = pct;
   return (
     <section>
       <h3>{t("online.leaderboard")}</h3>
-      <div className="row wrap">
-        <div className="seg">
-          {(["daily", "total"] as const).map((k) => (
-            <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>
-              {t(`online.board.${k}` as MessageKey)}
-            </button>
-          ))}
-        </div>
-        <div className="seg">
-          {(["global", "friends"] as const).map((k) => (
-            <button key={k} className={scope === k ? "on" : ""} onClick={() => setScope(k)}>
-              {t(`online.scope.${k}` as MessageKey)}
-            </button>
-          ))}
-        </div>
+      <div className="seg">
+        {(["global", "friends"] as const).map((k) => (
+          <button key={k} className={scope === k ? "on" : ""} onClick={() => setScope(k)}>
+            {t(`online.scope.${k}` as MessageKey)}
+          </button>
+        ))}
       </div>
-      {kind === "total" && <p className="note">{t("online.totalRule")}</p>}
       {err && <p className="warn-text">{err}</p>}
       {board && !board.entries.length && <p className="note">{t("online.boardEmpty")}</p>}
       {board && board.entries.length > 0 && (
@@ -433,7 +423,6 @@ function PkSection({ matches, onPlay, onChange }: { matches: PkMatch[] | null; o
         })}
       </div>
       {act.error && <p className="warn-text">{act.error}</p>}
-      <p className="note">{t("online.pkRule")}</p>
     </section>
   );
 }

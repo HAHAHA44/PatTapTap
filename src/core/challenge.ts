@@ -1,16 +1,23 @@
 // Challenges (daily challenge, PK): a fixed chart everyone plays, scored the same way
 // on the client and on the server. Pure TS, shared with the server.
 
-import { expandBar, PRESETS } from "./pattern";
+import { PRESETS } from "./pattern";
 import type { Grade, JudgeWindows } from "./types";
 
+/**
+ * A challenge chart. `phrase` is a short rhythm (usually 2 bars) repeated for the
+ * whole chart; each bar is written as beats separated by "|", each beat as hits "x"
+ * and rests "." on that beat's grid (2 = 8ths, 3 = triplets, 4 = 16ths).
+ * Older charts (before phrases) only had `patternId`, a built-in one-beat pattern.
+ * A later "song" kind can add its own fields.
+ */
 export interface ChallengeSpec {
-  /** Built-in pattern id (see PRESETS). */
-  patternId: string;
   bpm: number;
   beats: number;
   /** Bars to play after the count-in. */
   bars: number;
+  phrase?: string[];
+  patternId?: string;
 }
 
 /** Judge windows for challenges (same as practice). */
@@ -41,17 +48,68 @@ function rng(seed: number) {
   };
 }
 
-/** Patterns used for challenges, roughly easy to hard. */
-const CHALLENGE_PATTERNS = ["eighth", "offbeat", "triplet", "8-16-16", "16-16-8", "dotted", "synco", "tresillo", "sixteenth"];
+/** Target length of a challenge. */
+const TARGET_SECONDS = 120;
+
+/**
+ * Challenge pool, medium difficulty on purpose: syncopation and mixed 8th / 16th
+ * figures at moderate tempos, no "every slot filled" runs.
+ */
+const POOL: { beats: number; bpm: [number, number]; phrase: string[] }[] = [
+  // 8th-note syncopation
+  { beats: 4, bpm: [100, 120], phrase: ["x.|.x|x.|x.", "x.|.x|.x|x."] },
+  { beats: 4, bpm: [95, 115], phrase: ["x.|xx|.x|x.", "xx|.x|.x|x."] },
+  { beats: 4, bpm: [100, 120], phrase: ["x.|.x|.x|.x", "x.|xx|x.|.."] },
+  { beats: 4, bpm: [100, 120], phrase: ["x.|.x|..|x.", "..|x.|x.|.."] }, // 3-2 clave
+  { beats: 4, bpm: [100, 115], phrase: ["x.|..|x.|xx", ".x|x.|.x|x."] },
+  // 16th-note syncopation
+  { beats: 4, bpm: [80, 95], phrase: ["x..x|..x.|x...|x.x.", "x..x|..x.|..x.|x..."] },
+  { beats: 4, bpm: [80, 95], phrase: ["x.xx|x...|.xx.|x...", "x.xx|x.x.|.x.x|x..."] },
+  { beats: 4, bpm: [85, 100], phrase: ["x..x|..x.|x..x|..x.", "x..x|..x.|x.x.|x..."] }, // 3+3+2
+  // mixed 8ths and 16ths
+  { beats: 4, bpm: [85, 100], phrase: ["x.xx|.x|x..x|x.", "x.|.xx.|x.|xx"] },
+  { beats: 4, bpm: [90, 105], phrase: ["x.|x.xx|.x|x...", "xx.x|x.|..x.|x."] },
+  // triplets against 8ths
+  { beats: 4, bpm: [80, 95], phrase: ["xxx|x.|xxx|x.", "x.|xxx|.x|x."] },
+  // 3/4
+  { beats: 3, bpm: [100, 120], phrase: ["x.|.x|x.", "xx|.x|x."] },
+  { beats: 3, bpm: [85, 100], phrase: ["x..x|..x.|x...", "x.xx|.x..|x..."] },
+];
+
+export const POOL_SIZE = POOL.length;
 
 /** Chart for a seed: same seed, same chart on every device. */
 export function specFromSeed(seed: string): ChallengeSpec {
   const r = rng(hash(seed));
-  const patternId = CHALLENGE_PATTERNS[Math.floor(r() * CHALLENGE_PATTERNS.length)];
-  const dense = patternId === "sixteenth" || patternId === "triplet";
-  const bpm = (dense ? 70 : 85) + 5 * Math.floor(r() * (dense ? 9 : 12));
-  const beats = r() < 0.8 ? 4 : 3;
-  return { patternId, bpm, beats, bars: 16 };
+  const entry = POOL[Math.floor(r() * POOL.length)];
+  const steps = (entry.bpm[1] - entry.bpm[0]) / 5;
+  const bpm = entry.bpm[0] + 5 * Math.floor(r() * (steps + 1));
+  // about two minutes, in whole phrases
+  const barSec = (entry.beats * 60) / bpm;
+  const len = entry.phrase.length;
+  const bars = Math.max(len, Math.round(TARGET_SECONDS / barSec / len) * len);
+  return { bpm, beats: entry.beats, bars, phrase: entry.phrase };
+}
+
+/** Cells of one written bar: per beat, hit / rest on that beat's grid. */
+function parseBar(bar: string): boolean[][] {
+  return bar.split("|").map((beat) => [...beat].map((c) => c === "x"));
+}
+
+/** Every bar of the chart as per-beat cells (what the engine plays and both sides judge). */
+export function chartCells(spec: ChallengeSpec): boolean[][][] {
+  let phrase: boolean[][][];
+  if (spec.phrase?.length) phrase = spec.phrase.map(parseBar);
+  else {
+    const p = PRESETS.find((x) => x.id === spec.patternId) ?? PRESETS[0];
+    phrase = [Array.from({ length: spec.beats }, (_, b) => p.cells[b % p.cells.length].slice())];
+  }
+  return Array.from({ length: spec.bars }, (_, i) => phrase[i % phrase.length].map((c) => c.slice()));
+}
+
+/** One phrase of the chart (for previews). */
+export function phraseCells(spec: ChallengeSpec): boolean[][][] {
+  return chartCells({ ...spec, bars: spec.phrase?.length || 1 });
 }
 
 /** Today's challenge date "YYYY-MM-DD" in the given UTC offset (minutes). */
@@ -65,11 +123,11 @@ export function dailySpec(date: string): ChallengeSpec {
 
 /** Expected time (ms after the first bar starts) of every note in the chart. */
 export function noteTimes(spec: ChallengeSpec): number[] {
-  const pattern = PRESETS.find((p) => p.id === spec.patternId) ?? PRESETS[0];
-  const slots = expandBar(pattern, spec.beats).filter((s) => s.isNote);
   const beatMs = 60000 / spec.bpm;
   const out: number[] = [];
-  for (let bar = 0; bar < spec.bars; bar++) for (const s of slots) out.push((bar * spec.beats + s.pos) * beatMs);
+  chartCells(spec).forEach((bar, i) =>
+    bar.forEach((cells, b) => cells.forEach((on, j) => on && out.push((i * spec.beats + b + j / cells.length) * beatMs))),
+  );
   return out;
 }
 

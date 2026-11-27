@@ -465,3 +465,4 @@ html.w-settings { --series: #3b6cf6; --critical: #d03b3b; --grid: #e1e0d9; --axi
 .w-settings .pk-state.them { color: var(--miss); font-weight: 600; }
 .w-settings .row.friend { margin: 4px 0; }
 .w-settings .row.friend > span:first-child { min-width: 160px; }
+.w-settings .phrase { display: inline-flex; gap: 8px; flex-wrap: wrap; }
