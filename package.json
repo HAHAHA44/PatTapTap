@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "server:up": "docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --env-file deploy/.env up -d --build",
+    "server:down": "docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --env-file deploy/.env down",
+    "server:logs": "docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --env-file deploy/.env logs -f server",
+    "server:test": "npm --prefix server test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

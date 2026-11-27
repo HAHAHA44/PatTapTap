@@ -1,0 +1,39 @@
+# Production: Caddy terminates HTTPS (automatic certificates) in front of the API,
+# and a daily pg_dump keeps 14 days of backups in deploy/backups.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      server: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: patpattap
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: patpattap
+      KEEP_DAYS: "14"
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  caddydata:
+  caddyconfig:

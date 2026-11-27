@@ -4,7 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Menu } from "@tauri-apps/api/menu";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { RhythmEngine } from "../core/engine";
-import { expandBar } from "../core/pattern";
+import type { ChallengeSpec } from "../core/challenge";
+import { expandBar, PRESETS } from "../core/pattern";
 import { beatsPerBar, currentPattern, currentSongId, nextPlayIndex, normalizeSettings, Settings, toEngineConfig } from "../core/settings";
 import { buildChart } from "../core/songChart";
 import { songs } from "../platform/songs";
@@ -22,6 +23,7 @@ import {
   setState,
 } from "../platform/bridge";
 import { placeInitial, resizeAnchored, snapAndSave } from "../platform/widgetWindow";
+import { api, AUTH_CHANGED, CHALLENGE_DONE, ChallengeOutcome, ChallengeRequest, PLAY_CHALLENGE } from "../platform/api";
 import { resolveLang, setLang, t } from "../i18n";
 import "./widget.css";
 
@@ -32,11 +34,11 @@ const BEAT_W = 34; // wide enough for four 16th-note dots on one row
 const GAP = 4;
 const PAD = 4;
 
-/** `songBeats`: longest bar of the loaded song chart (song mode only). */
-function widgetSize(s: Settings, songBeats: number): [number, number] {
+/** `boxes`: beat boxes to show (bar length, or the song's longest bar, or the challenge's). */
+function widgetSize(s: Settings, boxes: number): [number, number] {
   const k = s.widgetScale;
   if (s.cue === "sound") return [Math.round(H * k), Math.round(H * k)];
-  const n = s.mode === "song" ? songBeats : beatsPerBar(s);
+  const n = boxes;
   return [Math.round((PAD + ICON + GAP + n * BEAT_W + (n - 1) * GAP + PAD) * k), Math.round(H * k)];
 }
 
@@ -74,6 +76,17 @@ export default function Widget() {
   /** Boxes shown in song mode: the longest bar of the current song (bars vary). */
   const [songBeats, setSongBeats] = useState(4);
   const songBeatsRef = useRef(4);
+  /** The challenge being played (daily / PK), if any. */
+  const challengeRef = useRef<ChallengeRequest | null>(null);
+  const [challenge, setChallenge] = useState<ChallengeSpec | null>(null);
+  const boxes = (s: Settings) => (challengeRef.current ? challengeRef.current.spec.beats : s.mode === "song" ? songBeatsRef.current : beatsPerBar(s));
+  const hintTimer = useRef<number | undefined>(undefined);
+  /** A hint that clears itself after a while. */
+  const flashHint = useCallback((text: string, ms = 10000) => {
+    clearTimeout(hintTimer.current);
+    setHint(text);
+    hintTimer.current = window.setTimeout(() => setHint(""), ms);
+  }, []);
 
   const settingsRef = useRef<Settings | null>(null);
   const runningRef = useRef(false);
@@ -97,7 +110,7 @@ export default function Widget() {
         },
         // Song finished: stop like the user pressed stop (saves the session).
         // Song finished: save it, then go on to the next playlist entry.
-        onEnd: () => void endRef.current(),
+        onEnd: () => void (challengeRef.current ? finishRef.current() : endRef.current()),
         onStray: (stats) => {
           setCombo(stats.combo);
           setFlash({ id: ++flashId.current, grade: "miss" });
@@ -144,7 +157,17 @@ export default function Widget() {
 
   const stopNow = useCallback(async () => {
     if (!runningRef.current) return;
+    // stopped by hand during a challenge: nothing is submitted
+    const cancelled = challengeRef.current;
+    challengeRef.current = null;
     const summary = engine.stop();
+    if (cancelled) {
+      setChallenge(null);
+      flashHint(t("widget.challengeCancelled"));
+      emit(CHALLENGE_DONE, { kind: cancelled.kind, status: "cancelled" } satisfies ChallengeOutcome).catch(() => {});
+      const s = settingsRef.current;
+      if (s) resizeAnchored(...widgetSize(s, boxes(s))).catch(() => {});
+    }
     runningRef.current = false;
     setRunning(false);
     setBeat(null);
@@ -199,6 +222,71 @@ export default function Widget() {
     broadcastState({ running: true });
   }, [engine, watchKeys, broadcastState]);
 
+  /** Play a challenge chart (count-in, fixed bars) with the user's keys and sounds. */
+  const startChallenge = useCallback(
+    (ch: ChallengeRequest) =>
+      serial(async () => {
+        await stopNow();
+        const s = settingsRef.current;
+        if (!s) return;
+        results.current.clear();
+        queue.current = [];
+        setCombo(0);
+        const pattern = PRESETS.find((p) => p.id === ch.spec.patternId) ?? PRESETS[0];
+        const cfg = {
+          ...toEngineConfig(s),
+          mode: "metronome" as const,
+          songId: null,
+          bpm: ch.spec.bpm,
+          beats: ch.spec.beats,
+          pattern,
+          countIn: true,
+          judge: true,
+          challengeBars: ch.spec.bars,
+        };
+        challengeRef.current = ch;
+        setChallenge(ch.spec);
+        resizeAnchored(...widgetSize(s, ch.spec.beats)).catch(() => {});
+        if (!(await engine.start(cfg))) {
+          challengeRef.current = null;
+          setChallenge(null);
+          setHint(t("widget.enableSound"));
+          return;
+        }
+        flashHint(t("widget.challengeGo"), 3000);
+        runningRef.current = true;
+        setRunning(true);
+        watchKeys(true);
+        broadcastState({ running: true });
+      }),
+    [serial, stopNow, engine, watchKeys, broadcastState, flashHint],
+  );
+
+  /** Challenge chart finished: save locally, send the raw taps for the server to judge. */
+  const finishChallenge = useCallback(
+    () =>
+      serial(async () => {
+        const ch = challengeRef.current;
+        if (!ch || !runningRef.current) return;
+        const taps = engine.taps.slice();
+        challengeRef.current = null; // so stopNow doesn't treat this as a cancel
+        await stopNow();
+        setChallenge(null);
+        const s = settingsRef.current;
+        if (s) resizeAnchored(...widgetSize(s, boxes(s))).catch(() => {});
+        setHint(t("widget.submitting"));
+        try {
+          const result = ch.kind === "daily" ? (await api.submitDaily(ch.date, taps)).result : (await api.pkSubmit(ch.id, taps)).mine!;
+          flashHint(t("widget.challengeScore", { p: (result.score / 100).toFixed(2) }));
+          await emit(CHALLENGE_DONE, { kind: ch.kind, status: "submitted", result } satisfies ChallengeOutcome);
+        } catch (e) {
+          flashHint(t("widget.submitFailed"));
+          await emit(CHALLENGE_DONE, { kind: ch.kind, status: "error", code: (e as Error).message } satisfies ChallengeOutcome);
+        }
+      }),
+    [serial, stopNow, engine, flashHint],
+  );
+
   const start = useCallback(() => serial(startNow), [serial, startNow]);
   const stop = useCallback(() => serial(stopNow), [serial, stopNow]);
   const toggle = useCallback(() => serial(() => (runningRef.current ? stopNow() : startNow())), [serial, startNow, stopNow]);
@@ -228,10 +316,11 @@ export default function Widget() {
         await emit(EV.settingsChanged, s);
       }
       getCurrentWindow().setIgnoreCursorEvents(s.clickThrough).catch(() => {});
-      const [w, h] = widgetSize(s, songBeatsRef.current);
+      const [w, h] = widgetSize(s, boxes(s));
       if (prev) resizeAnchored(w, h).catch(() => {});
       // Restart with the new config if something timing-related changed mid-practice.
-      if (runningRef.current && prev && JSON.stringify(toEngineConfig(prev)) !== JSON.stringify(toEngineConfig(s))) {
+      // (a challenge keeps its own fixed chart: no restart)
+      if (runningRef.current && !challengeRef.current && prev && JSON.stringify(toEngineConfig(prev)) !== JSON.stringify(toEngineConfig(s))) {
         // Volume and sound type change live; anything else restarts playback.
         const live = (c: ReturnType<typeof toEngineConfig>) => JSON.stringify({ ...c, volume: 0, voice: "", songVolume: 0 });
         if (live(toEngineConfig(prev)) === live(toEngineConfig(s))) {
@@ -259,7 +348,7 @@ export default function Widget() {
       applyLanguage(s);
       settingsRef.current = s;
       setSettings(s);
-      const [w, h] = widgetSize(s, songBeatsRef.current);
+      const [w, h] = widgetSize(s, boxes(s));
       await placeInitial(w, h).catch(() => {});
       await getCurrentWindow().setIgnoreCursorEvents(s.clickThrough).catch(() => {});
       await getCurrentWindow().show();
@@ -280,6 +369,8 @@ export default function Widget() {
       unlisten.push(
         await listen<Settings>(EV.settingsUpdate, (e) => applyRef.current(normalizeSettings(e.payload), true)),
         await listen<string>(EV.globalKey, (e) => engine.hit(e.payload, performance.now())),
+        await listen<ChallengeRequest>(PLAY_CHALLENGE, (e) => void challengeStartRef.current(e.payload)),
+        await listen(AUTH_CHANGED, () => void pollPkRef.current()),
         await listen<string>(EV.cmd, async (e) => {
           if (e.payload === "toggle") toggleRef.current();
           else if (e.payload === "stop") stopRef.current();
@@ -343,6 +434,31 @@ export default function Widget() {
   const applyRef = useRef(applySettings);
   const endRef = useRef(onSongEnd);
   endRef.current = onSongEnd;
+  const finishRef = useRef(finishChallenge);
+  finishRef.current = finishChallenge;
+  const challengeStartRef = useRef(startChallenge);
+  challengeStartRef.current = startChallenge;
+
+  // PK invites: check now and then; mention new ones that wait for this player.
+  const seenPk = useRef<Set<string> | null>(null);
+  const pollPk = useCallback(async () => {
+    try {
+      const { matches } = await api.pkList();
+      const waiting = matches.filter((m) => m.status === "open" && !m.mine).map((m) => m.id);
+      const fresh = seenPk.current ? waiting.filter((id) => !seenPk.current!.has(id)) : [];
+      seenPk.current = new Set(waiting);
+      if (fresh.length && !runningRef.current) flashHint(t("widget.pkWaiting", { n: waiting.length }), 15000);
+    } catch {
+      seenPk.current = null; // logged out or offline
+    }
+  }, [flashHint]);
+  const pollPkRef = useRef(pollPk);
+  pollPkRef.current = pollPk;
+  useEffect(() => {
+    void pollPkRef.current();
+    const id = window.setInterval(() => void pollPkRef.current(), 5 * 60000);
+    return () => clearInterval(id);
+  }, []);
   toggleRef.current = toggle;
   stopRef.current = stop;
   applyRef.current = applySettings;
@@ -448,7 +564,7 @@ export default function Widget() {
 
   const visual = settings.cue !== "sound";
   const shownBar = beat?.bar ?? 0;
-  const nBeats = settings.mode === "song" ? songBeats : beatsPerBar(settings);
+  const nBeats = challenge ? challenge.beats : settings.mode === "song" ? songBeats : beatsPerBar(settings);
   // Dots per beat for a bar; song charts differ bar to bar, so ask the engine.
   const slotsAt = (bar: number): BarSlot[] => (running && engine.slotsOf(bar)) || idleSlots;
   const beatsIn = (bar: number) => slotsAt(bar).reduce((m, x) => Math.max(m, x.beat + 1), 0);

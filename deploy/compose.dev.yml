@@ -1,0 +1,15 @@
+# Local development: exposes the API on :8787 and catches all mail in Mailpit
+# (web UI on http://localhost:8025). Ports bind to 127.0.0.1 only.
+
+services:
+  server:
+    ports: ["127.0.0.1:8787:8080"]
+    depends_on:
+      mailpit: { condition: service_started }
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"

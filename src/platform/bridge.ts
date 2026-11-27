@@ -66,6 +66,12 @@ export async function appendHistory(s: SessionSummary) {
   await historyStore.save();
 }
 
+/** Overwrite the history (used when merging in sessions synced from other devices). */
+export async function replaceHistory(list: SessionSummary[]) {
+  await historyStore.set("sessions", list.slice(0, HISTORY_MAX));
+  await historyStore.save();
+}
+
 export async function clearHistory() {
   await historyStore.set("sessions", []);
   await historyStore.save();

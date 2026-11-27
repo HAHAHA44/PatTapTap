@@ -94,6 +94,8 @@ export interface EngineConfig {
   songVolume: number;
   /** Bumped when the selected song's analysis is edited (tempo ×2 etc.). */
   songRev: number;
+  /** Challenge: play this many bars (after the count-in), then end. Every note counts. */
+  challengeBars?: number;
 }
 
 export interface LiveStats {

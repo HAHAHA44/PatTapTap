@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+src-tauri
+public
+.git
+deploy/.env
+deploy/backups

@@ -22,11 +22,14 @@ import {
 import PatternEditor, { PatternPreview } from "./PatternEditor";
 import Calibration from "./Calibration";
 import SongSection from "./SongSection";
+import OnlineTab from "./OnlineTab";
+import { AUTH_CHANGED } from "../platform/api";
+import { syncHistory } from "../platform/sync";
 import HistoryDetail, { fmtTime, historyPatternName } from "./HistoryDetail";
 import "./settings.css";
 
-type Tab = "rhythm" | "cue" | "keys" | "general" | "history";
-const TABS: Tab[] = ["rhythm", "cue", "keys", "general", "history"];
+type Tab = "rhythm" | "cue" | "keys" | "general" | "history" | "online";
+const TABS: Tab[] = ["rhythm", "cue", "keys", "general", "history", "online"];
 
 interface RunState {
   running: boolean;
@@ -43,10 +46,16 @@ export default function SettingsApp() {
   useEffect(() => {
     const un: Promise<() => void>[] = [];
     loadSettings().then(setS);
-    loadHistory().then(setHistory);
+    // signed in: exchange practice history with other devices (silently skipped otherwise)
+    const sync = () =>
+      syncHistory()
+        .then((added) => (added ? loadHistory().then(setHistory) : undefined))
+        .catch(() => {});
+    loadHistory().then(setHistory).then(sync);
+    un.push(listen(AUTH_CHANGED, (e) => e.payload && sync()));
     un.push(onSettingsChanged(setS));
     un.push(listen<RunState>(EV.runState, (e) => setRun(e.payload)));
-    un.push(listen<SessionSummary>(EV.sessionEnded, () => loadHistory().then(setHistory)));
+    un.push(listen<SessionSummary>(EV.sessionEnded, () => loadHistory().then(setHistory).then(sync)));
     emit(EV.cmd, "ping");
     return () => un.forEach((p) => p.then((f) => f()));
   }, []);
@@ -93,6 +102,7 @@ export default function SettingsApp() {
         {tab === "cue" && <CueTab s={s} update={update} />}
         {tab === "keys" && <KeysTab s={s} update={update} run={run} />}
         {tab === "general" && <GeneralTab s={s} update={update} run={run} />}
+        {tab === "online" && <OnlineTab />}
         {tab === "history" && <HistoryTab history={history} onClear={() => clearHistory().then(() => setHistory([]))} />}
       </main>
     </div>

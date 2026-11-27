@@ -52,7 +52,7 @@ export interface EngineCallbacks {
   onSchedule?(e: ScheduledEvent): void;
   onResult?(r: NoteResult, stats: LiveStats): void;
   onStray?(stats: LiveStats): void;
-  /** The song finished playing (song mode only). */
+  /** The song finished playing, or a challenge's last bar was judged. */
   onEnd?(): void;
 }
 
@@ -89,6 +89,7 @@ export class RhythmEngine {
   private patternSlots: BarSlot[] = [];
   private barLen = 2;
   private songEnded = false;
+  private lastBarEnd = 0;
   private pending: PendingNote[] = [];
   private noteCounter = 0;
   private clockOffset = 0; // perf ms = audio s * 1000 + clockOffset
@@ -97,6 +98,8 @@ export class RhythmEngine {
   private startToken = 0;
   private stats: LiveStats = emptyStats();
   private trace: TraceHit[] = [];
+  private tapTimes: number[] = [];
+  private ended = false;
   private t0Perf = 0; // perf ms of bar 0 (after count-in / song start)
   running = false;
 
@@ -158,6 +161,8 @@ export class RhythmEngine {
     this.noteCounter = 0;
     this.stats = emptyStats();
     this.trace = [];
+    this.tapTimes = [];
+    this.ended = false;
     this.t0Perf = this.audioToPerf(this.origin + (!song && cfg.countIn ? this.barLen : 0));
     this.startedAt = Date.now();
     this.running = true;
@@ -177,7 +182,7 @@ export class RhythmEngine {
     // Notes already past their window count as misses; future ones are dropped.
     this.expireMisses(performance.now());
     this.pending = [];
-    this.dropTrailingMisses();
+    if (!this.cfg.challengeBars) this.dropTrailingMisses();
     const song = this.song;
     this.song = null; // release the decoded audio
     if (!this.cfg.judge || judgedCount(this.stats) + this.stats.stray === 0) return null;
@@ -247,6 +252,12 @@ export class RhythmEngine {
     if (this.song) this.song.volume = v;
   }
 
+  /** Every tap with a practice key in this session: ms after bar 0, calibration removed
+   *  (what a challenge submits for the server to judge). */
+  get taps(): number[] {
+    return this.tapTimes;
+  }
+
   get liveStats(): LiveStats {
     return this.stats;
   }
@@ -268,6 +279,7 @@ export class RhythmEngine {
     if (code === keys[0]) hand = 0;
     else if (keyMode === "alternate" && code === keys[1]) hand = 1;
     else return;
+    if (this.tapTimes.length < 20000) this.tapTimes.push(Math.round((t - this.cfg.calibrationMs - this.t0Perf) * 10) / 10);
 
     this.expireMisses(t);
     let best = -1;
@@ -364,6 +376,7 @@ export class RhythmEngine {
       if (!b) return null;
       return { start: b.start, beats: b.beats, end: b.end, slots: gridSlots(b.cells), countIn: false };
     }
+    if (this.cfg.challengeBars && i >= this.cfg.challengeBars) return null;
     const first = this.cfg.countIn ? -1 : 0;
     const start = (i - first) * this.barLen;
     const spb = this.barLen / this.cfg.beats;
@@ -385,9 +398,13 @@ export class RhythmEngine {
     const cfg = this.cfg;
     const song = this.song;
 
-    if (song && this.songEnded) {
+    if (this.songEnded) {
       // all notes scheduled: finish once the audio is over and the last note judged
-      if (!this.pending.length && ctx.currentTime > this.origin + song.buffer.duration) this.cb.onEnd?.();
+      const endAt = this.origin + (song ? song.buffer.duration : this.lastBarEnd);
+      if (!this.pending.length && ctx.currentTime > endAt && !this.ended) {
+        this.ended = true;
+        this.cb.onEnd?.();
+      }
       return;
     }
 
@@ -395,6 +412,8 @@ export class RhythmEngine {
       if (!this.curBar) {
         this.curBar = this.barAt(this.bar);
         if (!this.curBar) {
+          const last = this.barAt(this.bar - 1);
+          this.lastBarEnd = last ? last.end : 0;
           this.songEnded = true;
           return;
         }

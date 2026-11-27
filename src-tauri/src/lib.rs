@@ -1,4 +1,5 @@
 mod keys;
+mod secrets;
 mod songs;
 
 use std::collections::HashMap;
@@ -178,7 +179,10 @@ pub fn run() {
             songs::song_save_meta,
             songs::song_read_meta,
             songs::song_list,
-            songs::song_delete
+            songs::song_delete,
+            secrets::secret_get,
+            secrets::secret_set,
+            secrets::secret_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
